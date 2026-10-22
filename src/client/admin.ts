@@ -117,3 +117,12 @@ if (modeRadios.length && excRanges) {
   for (const r of modeRadios) r.addEventListener("change", sync);
   sync();
 }
+
+// Nom du fichier choisi pour la photo.
+const fileInput = document.querySelector<HTMLInputElement>("[data-file-input]");
+const fileName = document.querySelector<HTMLElement>("[data-file-name]");
+if (fileInput && fileName) {
+  fileInput.addEventListener("change", () => {
+    fileName.textContent = fileInput.files?.[0]?.name ?? "Aucun fichier choisi";
+  });
+}

@@ -103,7 +103,9 @@ async function buildPicker(
   }
   const monthEnd = month.plus({ months: 1 });
   const result = await deps.availability.slots(et, month.toMillis(), monthEnd.toMillis(), opts.exclude ? { exclude: opts.exclude } : {});
-  const days = result.ok ? groupByLocalDate(result.slots, tz) : new Map<string, number[]>();
+  // En reprogrammation, l'horaire actuel n'est pas proposé.
+  const slots = result.ok ? result.slots.filter((s) => s !== opts.exclude?.startAt) : [];
+  const days = groupByLocalDate(slots, tz);
   const selectedDay = dayParam && /^\d{4}-\d{2}-\d{2}$/.test(dayParam) && dayParam.startsWith(month.toFormat("yyyy-MM")) ? dayParam : null;
 
   return {

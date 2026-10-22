@@ -162,7 +162,7 @@ export function BookingDetailPage(props: { meta: AdminMeta; booking: Booking; ev
         </a>
       </p>
       <PageHead title={b.inviteeName} text={b.status === "cancelled" ? "Réservation annulée" : b.endAt < props.now ? "Rendez-vous passé" : "Réservation confirmée"} />
-      <div class="stack">
+      <div class="stack admin-form">
         <dl class="meta meta--rows">
           <div>
             <dt>Type</dt>
@@ -1011,7 +1011,15 @@ export function SettingsPage(props: { meta: AdminMeta; values: SettingsValues; e
             <Field id="avatar" label="Photo ou logo" optional error={e.avatar} hint="PNG, JPEG ou WebP, 1 Mo au maximum. Affichée en carré.">
               <div class="avatar-row">
                 {avatar ? <img class="avatar avatar--lg" src={avatar} alt="Image actuelle" width={56} height={56} /> : null}
-                <input class="file" id="avatar" name="avatar" type="file" accept="image/png,image/jpeg,image/webp" aria-invalid={e.avatar ? "true" : undefined} aria-describedby={describedBy("avatar", true, e.avatar)} />
+                <span class="file-pick">
+                  <input class="file-input" id="avatar" name="avatar" type="file" accept="image/png,image/jpeg,image/webp" aria-invalid={e.avatar ? "true" : undefined} aria-describedby={describedBy("avatar", true, e.avatar)} data-file-input />
+                  <span class="btn" aria-hidden="true">
+                    Choisir une image
+                  </span>
+                  <span class="file-name muted" data-file-name aria-hidden="true">
+                    Aucun fichier choisi
+                  </span>
+                </span>
               </div>
             </Field>
             {avatar ? (

@@ -28,7 +28,7 @@ export default defineConfig({
     locale: "fr-FR",
     timezoneId: "Europe/Paris",
     trace: "retain-on-failure",
-    launchOptions: { args: ["--lang=fr-FR"] },
+    launchOptions: { args: ["--lang=fr-FR"], env: { ...process.env, LANG: "fr_FR.UTF-8", LANGUAGE: "fr" } },
   },
   projects: [
     { name: "e2e", testMatch: /booking\.spec\.ts/, use: { ...devices["Desktop Chrome"] } },
