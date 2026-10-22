@@ -388,7 +388,7 @@ img {
 .check input {
   width: 18px;
   height: 18px;
-  margin: 3px 0 0;
+  margin: var(--s1) 0 0;
   accent-color: var(--accent);
   flex: none;
 }
@@ -469,7 +469,7 @@ legend {
 
 .meta div {
   display: grid;
-  gap: 2px;
+  gap: var(--s1);
 }
 
 .meta dt {
@@ -652,6 +652,10 @@ legend {
   opacity: 0.5;
 }
 
+.picker-notice {
+  margin-bottom: var(--s5);
+}
+
 .cal-head {
   display: flex;
   align-items: center;
@@ -713,7 +717,7 @@ legend {
 }
 
 .cal td {
-  padding: 2px;
+  padding: var(--s1);
   text-align: center;
 }
 
@@ -755,7 +759,7 @@ td[aria-selected="true"] a.day {
   content: "";
   position: absolute;
   left: 50%;
-  bottom: 7px;
+  bottom: var(--s2);
   width: 12px;
   height: 2px;
   margin-left: -6px;
@@ -1059,7 +1063,7 @@ td[aria-selected="true"] a.day {
 
 .table tr {
   display: grid;
-  gap: 2px var(--s3);
+  gap: var(--s1) var(--s3);
   padding: var(--s3) var(--s4);
   border-top: 1px solid var(--line);
 }
@@ -1180,7 +1184,7 @@ td[aria-selected="true"] a.day {
 
 .week-day__name {
   font-weight: 500;
-  padding-top: 10px;
+  padding-top: var(--s3);
 }
 
 .ranges {
@@ -1205,7 +1209,7 @@ td[aria-selected="true"] a.day {
 }
 
 .range-off {
-  padding-top: 10px;
+  padding-top: var(--s3);
   color: var(--text-2);
 }
 
@@ -1224,7 +1228,7 @@ td[aria-selected="true"] a.day {
 .color-row input[type="color"] {
   width: var(--control);
   height: var(--control);
-  padding: 2px;
+  padding: var(--s1);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: var(--surface);

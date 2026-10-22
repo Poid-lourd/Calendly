@@ -206,8 +206,7 @@ function SlotsPanel(p: PickerProps) {
           Horaires
         </h3>
         <div class="slots-empty">
-          <p>Les disponibilités ne peuvent pas être affichées pour le moment.</p>
-          <p>Réessayez dans quelques minutes.</p>
+          <p>Aucun horaire à afficher.</p>
         </div>
       </section>
     );
@@ -271,6 +270,13 @@ export function PickerInner(p: PickerProps) {
   return (
     <>
       <div class="cal-col">
+        {p.status === "unavailable" ? (
+          <div class="picker-notice">
+            <Notice kind="error" title="Disponibilités momentanément indisponibles">
+              L'agenda ne répond pas. Réessayez dans quelques minutes.
+            </Notice>
+          </div>
+        ) : null}
         <div class="cal-head">
           <p class="cal-title" id="cal-titre" aria-live="polite">
             {monthLabel(p.month)}

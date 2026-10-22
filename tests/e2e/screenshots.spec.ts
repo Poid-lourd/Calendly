@@ -164,7 +164,7 @@ test("compte Google déconnecté", async ({ page }) => {
   db.close();
 
   await page.goto(`${DEMO}/echange-30-min?mois=${new Date().toISOString().slice(0, 7)}&tz=Europe/Paris`);
-  await expect(page.getByText("ne peuvent pas être affichées")).toBeVisible();
+  await expect(page.getByText("Disponibilités momentanément indisponibles")).toBeVisible();
   await shoot(page, "15-reservation-indisponible");
 
   await loginAdmin(page, DEMO);

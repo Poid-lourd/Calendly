@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// Deux instances en mode simulé : l'une avec données de démonstration, l'autre vide pour les états vides.
+// Instances en mode simulé : démonstration et vide pour les captures, une troisième réservée au parcours E2E.
 const server = (port: number, dir: string, seed: boolean) => ({
   command: `rm -rf ${dir} && node dist/server.js`,
   url: `http://localhost:${port}/healthz`,
@@ -31,8 +31,8 @@ export default defineConfig({
     launchOptions: { args: ["--lang=fr-FR"], env: { ...process.env, LANG: "fr_FR.UTF-8", LANGUAGE: "fr" } },
   },
   projects: [
-    { name: "e2e", testMatch: /booking\.spec\.ts/, use: { ...devices["Desktop Chrome"] } },
+    { name: "e2e", testMatch: /(booking|a11y)\.spec\.ts/, use: { ...devices["Desktop Chrome"] } },
     { name: "screenshots", testMatch: /screenshots\.spec\.ts/, use: { ...devices["Desktop Chrome"] } },
   ],
-  webServer: [server(3101, ".tmp/e2e-demo", true), server(3102, ".tmp/e2e-vide", false)],
+  webServer: [server(3101, ".tmp/e2e-demo", true), server(3102, ".tmp/e2e-vide", false), server(3103, ".tmp/e2e-parcours", true)],
 });

@@ -166,11 +166,11 @@ npm run dev:mock        # serveur en mode simulé
 npm run lint            # ESLint
 npm run typecheck       # TypeScript
 npm test                # tests unitaires et d'intégration (Vitest)
-npm run test:e2e        # parcours complet dans Chromium (Playwright)
+npm run test:e2e        # parcours complet et audit d'accessibilité dans Chromium (Playwright)
 npm run screenshots     # captures 390 px et 1440 px dans docs/screenshots
 ```
 
-Les tests couvrent le calcul des créneaux (tampons, préavis, horizon, plafond, exceptions, agendas multiples, changements d'heure à Paris et New York, visiteur dans un autre fuseau), l'absence de double réservation sous requêtes simultanées, le client Google sur des réponses d'API simulées, la sécurité HTTP et le parcours réservation, reprogrammation, annulation.
+Les tests couvrent le calcul des créneaux (tampons, préavis, horizon, plafond, exceptions, agendas multiples, changements d'heure à Paris et New York, visiteur dans un autre fuseau), l'absence de double réservation sous requêtes simultanées, le client Google sur des réponses d'API simulées, la sécurité HTTP, le parcours réservation, reprogrammation, annulation (avec et sans JavaScript, au clavier, dans un autre fuseau) et l'accessibilité WCAG 2.1 AA de chaque écran avec axe-core.
 
 ```
 src/

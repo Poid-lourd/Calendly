@@ -598,7 +598,7 @@ export function EventTypeFormPage(props: {
         </div>
       </form>
       {props.id !== null ? (
-        <section class="section section--spaced">
+        <section class="section section--spaced admin-form">
           <h2>Supprimer</h2>
           {props.bookingCount > 0 ? (
             <p class="muted">Ce type a des réservations et ne peut pas être supprimé. Désactivez-le pour ne plus le proposer.</p>
@@ -743,8 +743,8 @@ export function ScheduleFormPage(props: {
         </a>
       </p>
       <PageHead title={props.id === null ? "Nouveau planning" : v.name || "Planning"} />
-      <div class="stack">
-        <form class="stack admin-form" method="post" action={action} novalidate>
+      <div class="stack admin-form">
+        <form class="stack" method="post" action={action} novalidate>
           {hasErrors ? <Notice kind="error" title="Enregistrement impossible">Corrigez les champs signalés.</Notice> : null}
           <Csrf token={props.meta.csrf} />
           <section class="section">
