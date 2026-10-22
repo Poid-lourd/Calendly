@@ -134,9 +134,11 @@ export interface NewBooking {
   externalEventId: string;
 }
 
-export interface BusyInterval {
+export interface LocalBusy {
   start: number;
   end: number;
+  before: number;
+  after: number;
 }
 
 export class Repo {
@@ -572,23 +574,26 @@ export class Repo {
       .run(this.now(), id);
   }
 
-  // Périodes occupées par des réservations locales (confirmées, en cours ou en cours de reprogrammation)
-  // sur un ensemble d'agendas.
-  localBusy(calendarIds: number[], from: number, to: number, excludeBookingId: number | null): BusyInterval[] {
+  // Réservations locales actives (confirmées, en cours de création ou de reprogrammation) sur un ensemble d'agendas,
+  // avec les tampons de leur type d'événement en millisecondes.
+  localBusy(calendarIds: number[], from: number, to: number, excludeBookingId: number | null): LocalBusy[] {
     if (calendarIds.length === 0) return [];
     const placeholders = calendarIds.map(() => "?").join(",");
     const exclude = excludeBookingId ?? -1;
     const rows = this.db
       .prepare(
-        `SELECT start_at AS s, end_at AS e FROM bookings
-           WHERE status IN ('pending', 'confirmed') AND calendar_id IN (${placeholders}) AND id != ? AND start_at < ? AND end_at > ?
+        `SELECT b.start_at AS s, b.end_at AS e, t.buffer_before_minutes AS bb, t.buffer_after_minutes AS ba
+           FROM bookings b JOIN event_types t ON t.id = b.event_type_id
+           WHERE b.status IN ('pending', 'confirmed') AND b.calendar_id IN (${placeholders}) AND b.id != ?
+             AND b.start_at < ? AND b.end_at > ?
          UNION ALL
-         SELECT pending_start_at AS s, pending_end_at AS e FROM bookings
-           WHERE status = 'confirmed' AND pending_start_at IS NOT NULL AND calendar_id IN (${placeholders}) AND id != ?
-             AND pending_start_at < ? AND pending_end_at > ?`,
+         SELECT b.pending_start_at AS s, b.pending_end_at AS e, t.buffer_before_minutes AS bb, t.buffer_after_minutes AS ba
+           FROM bookings b JOIN event_types t ON t.id = b.event_type_id
+           WHERE b.status = 'confirmed' AND b.pending_start_at IS NOT NULL AND b.calendar_id IN (${placeholders}) AND b.id != ?
+             AND b.pending_start_at < ? AND b.pending_end_at > ?`,
       )
       .all(...calendarIds, exclude, to, from, ...calendarIds, exclude, to, from) as Row[];
-    return rows.map((r) => ({ start: num(r.s), end: num(r.e) }));
+    return rows.map((r) => ({ start: num(r.s), end: num(r.e), before: num(r.bb) * 60_000, after: num(r.ba) * 60_000 }));
   }
 
   // Débuts des réservations actives d'un type d'événement, pour le plafond quotidien.

@@ -347,3 +347,21 @@ describe("visiteur dans un autre fuseau", () => {
     expect(slots.map((s) => fmt(s, NY))).toEqual(["2026-11-02 03:00"]);
   });
 });
+
+describe("tampons des réservations existantes", () => {
+  it("le tampon après d'une réservation bloque le créneau qui la suit", () => {
+    const booked = { start: local(`${MONDAY}T10:00`, PARIS), end: local(`${MONDAY}T10:30`, PARIS) };
+    const slots = run({ busy: [booked], blocked: [{ start: booked.start, end: booked.end + 10 * 60_000 }] });
+    expect(parisTimes(slots)).toEqual(["09:00", "09:30", "11:00", "11:30"]);
+  });
+
+  it("conflits symétriques entre tampons", async () => {
+    const { conflicts } = await import("../../src/domain/slots.js");
+    const m = 60_000;
+    const existing = { start: 60 * m, end: 90 * m, before: 0, after: 10 * m };
+    expect(conflicts({ start: 90 * m, end: 120 * m, before: 0, after: 0 }, existing)).toBe(true);
+    expect(conflicts({ start: 100 * m, end: 130 * m, before: 0, after: 0 }, existing)).toBe(false);
+    expect(conflicts({ start: 30 * m, end: 60 * m, before: 0, after: 1 * m }, existing)).toBe(true);
+    expect(conflicts({ start: 30 * m, end: 60 * m, before: 0, after: 0 }, existing)).toBe(false);
+  });
+});

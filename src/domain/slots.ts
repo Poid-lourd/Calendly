@@ -24,7 +24,10 @@ export interface SlotInput {
   overrides: Record<string, MinuteRange[]>;
   rules: SlotRules;
   // Périodes occupées (agendas Google et réservations locales), instants UTC en millisecondes.
+  // Le créneau, tampons compris, ne doit chevaucher aucune de ces périodes.
   busy: Interval[];
+  // Réservations locales élargies de leurs propres tampons : le créneau, hors tampons, ne doit pas les chevaucher.
+  blocked?: Interval[];
   // Débuts des réservations actives du type d'événement, pour le plafond quotidien.
   bookedStarts: number[];
   rangeStart: number;
@@ -43,6 +46,16 @@ export function mergeIntervals(list: Interval[]): Interval[] {
     else out.push({ ...i });
   }
   return out;
+}
+
+// Deux intervalles en conflit, en tenant compte des tampons de chacun.
+export function conflicts(
+  candidate: Interval & { before: number; after: number },
+  existing: Interval & { before: number; after: number },
+): boolean {
+  const a = candidate.start - candidate.before < existing.end && existing.start < candidate.end + candidate.after;
+  const b = candidate.start < existing.end + existing.after && existing.start - existing.before < candidate.end;
+  return a || b;
 }
 
 // Vrai si [start, end) chevauche une période de la liste fusionnée et triée.
@@ -84,6 +97,7 @@ export function computeSlots(input: SlotInput): number[] {
   const earliest = input.now + rules.minNoticeMinutes * MINUTE;
   const lastDate = DateTime.fromMillis(input.now, { zone }).startOf("day").plus({ days: rules.maxHorizonDays });
   const busy = mergeIntervals(input.busy);
+  const blocked = mergeIntervals(input.blocked ?? []);
 
   const perDay = new Map<string, number>();
   for (const s of input.bookedStarts) {
@@ -104,7 +118,7 @@ export function computeSlots(input: SlotInput): number[] {
         const rangeEnd = atMinute(day, range.end).toMillis();
         for (let t = atMinute(day, range.start).toMillis(); t + duration <= rangeEnd; t += step) {
           if (t < input.rangeStart || t >= input.rangeEnd || t < earliest) continue;
-          if (overlaps(busy, t - before, t + duration + after)) continue;
+          if (overlaps(busy, t - before, t + duration + after) || overlaps(blocked, t, t + duration)) continue;
           found.add(t);
         }
       }
