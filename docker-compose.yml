@@ -1,0 +1,45 @@
+# Application et Caddy (HTTPS automatique sur DOMAIN).
+# Sans fichier .env, démarre en mode simulé avec des données de démonstration sur https://localhost.
+name: rendez-vous
+
+services:
+  app:
+    build: .
+    image: rendez-vous:latest
+    restart: unless-stopped
+    environment:
+      CALENDAR_PROVIDER: ${CALENDAR_PROVIDER:-mock}
+      BASE_URL: ${BASE_URL:-https://${DOMAIN:-localhost}}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-admin@exemple.test}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      DEMO_SEED: ${DEMO_SEED:-true}
+      TRUST_PROXY: "true"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - app_data:/data
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  app_data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,14 @@
+.git
+node_modules
+dist
+data
+backups
+.tmp
+.env
+docs
+tests
+test-results
+playwright-report
+*.db
+*.db-wal
+*.db-shm

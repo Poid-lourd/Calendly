@@ -1,0 +1,5 @@
+# HTTPS automatique pour {$DOMAIN} (Let's Encrypt, ou autorité locale pour localhost).
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

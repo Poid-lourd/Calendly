@@ -1,0 +1,27 @@
+# Variante sans Caddy, derrière un reverse proxy existant (nginx, Traefik, Apache...).
+# docker compose -f docker-compose.proxy.yml up -d
+# L'application écoute sur 127.0.0.1:3000 ; le proxy termine TLS et transmet X-Forwarded-For.
+name: rendez-vous
+
+services:
+  app:
+    build: .
+    image: rendez-vous:latest
+    restart: unless-stopped
+    environment:
+      CALENDAR_PROVIDER: ${CALENDAR_PROVIDER:-google}
+      BASE_URL: ${BASE_URL:?BASE_URL est requis, par exemple https://rdv.exemple.fr}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:?ADMIN_EMAILS est requis}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      DEMO_SEED: ${DEMO_SEED:-false}
+      TRUST_PROXY: "true"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - app_data:/data
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+
+volumes:
+  app_data:

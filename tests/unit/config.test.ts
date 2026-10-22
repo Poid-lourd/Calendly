@@ -27,11 +27,11 @@ describe("configuration", () => {
     expect(c.google).toEqual({ clientId: "a", clientSecret: "b" });
   });
 
-  it("refuse une clé de mauvaise taille et DEMO_SEED hors simulation", () => {
+  it("refuse une clé de mauvaise taille, ignore DEMO_SEED hors simulation", () => {
     expect(() => loadConfig({ ...base, CALENDAR_PROVIDER: "mock", ENCRYPTION_KEY: "abc" })).toThrow(/32 octets/);
-    expect(() =>
-      loadConfig({ ...base, GOOGLE_CLIENT_ID: "a", GOOGLE_CLIENT_SECRET: "b", ENCRYPTION_KEY: "0".repeat(64), DEMO_SEED: "true" }),
-    ).toThrow(/DEMO_SEED/);
+    const google = loadConfig({ ...base, GOOGLE_CLIENT_ID: "a", GOOGLE_CLIENT_SECRET: "b", ENCRYPTION_KEY: "0".repeat(64), DEMO_SEED: "true" });
+    expect(google.demoSeed).toBe(false);
+    expect(google.warnings.join(" ")).toMatch(/DEMO_SEED/);
   });
 
   it("exige au moins un administrateur", () => {

@@ -103,7 +103,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
 
   if (e.DEMO_SEED && !mock) {
-    throw new ConfigError("DEMO_SEED n'est autorisé qu'avec CALENDAR_PROVIDER=mock.");
+    warnings.push("DEMO_SEED ignoré : les données de démonstration ne concernent que le mode simulé.");
   }
 
   const dataDir = path.resolve(e.DATA_DIR);
@@ -119,7 +119,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     adminEmails,
     encryptionKey,
     trustProxy: e.TRUST_PROXY,
-    demoSeed: e.DEMO_SEED,
+    demoSeed: e.DEMO_SEED && mock,
     logLevel: e.LOG_LEVEL,
     warnings,
   };

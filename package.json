@@ -10,8 +10,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "node dist/server.js",
-    "dev": "node scripts/build.mjs --watch",
-    "dev:mock": "npm run build && CALENDAR_PROVIDER=mock DEMO_SEED=true DATA_DIR=./data node dist/server.js",
+    "dev": "CALENDAR_PROVIDER=mock DEMO_SEED=true ADMIN_EMAILS=admin@exemple.test DATA_DIR=./data node scripts/build.mjs --watch",
+    "dev:mock": "npm run build && CALENDAR_PROVIDER=mock DEMO_SEED=true ADMIN_EMAILS=admin@exemple.test DATA_DIR=./data node --enable-source-maps dist/server.js",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
