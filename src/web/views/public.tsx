@@ -692,6 +692,86 @@ export function RescheduleConfirmPage(props: {
   );
 }
 
+// Page ouverte depuis la signature de mail : quelques créneaux de la semaine, puis le calendrier complet.
+export function ShortlistPage(props: {
+  meta: PageMeta;
+  et: EventType;
+  status: "ok" | "empty" | "unavailable";
+  week: "current" | "next";
+  slots: number[];
+  tz: string;
+  tzSource: "query" | "cookie" | "default";
+}) {
+  const { et, tz } = props;
+  const zones = timeZones().includes(tz) ? timeZones() : [tz, ...timeZones()];
+  const fullHref = `/${et.slug}?${new URLSearchParams({ tz }).toString()}`;
+  return (
+    <PublicPage {...props.meta}>
+      <div class="booking booking--narrow">
+        <div class="booking__main" data-tz-auto data-tz={tz} data-tz-source={props.tzSource}>
+          <div class="confirm-head">
+            <HostLine settings={props.meta.settings} />
+            <h1>Réserver un échange</h1>
+            <p class="muted">
+              {et.title} · {duration(et.durationMinutes)} · {locationLabel(et.locationType, et.locationValue)}
+            </p>
+          </div>
+          {props.status === "unavailable" ? (
+            <Notice kind="error" title="Disponibilités momentanément indisponibles">
+              L'agenda ne répond pas. Réessayez dans quelques minutes.
+            </Notice>
+          ) : props.status === "empty" ? (
+            <Empty title="Aucun créneau libre cette semaine ni la suivante.">Le calendrier complet montre les semaines à venir.</Empty>
+          ) : (
+            <section class="shortlist" aria-labelledby="semaine">
+              <h2 id="semaine" class="shortlist-title">
+                {props.week === "current" ? "Cette semaine" : "Semaine prochaine"}
+              </h2>
+              <ul class="shortlist-list">
+                {props.slots.map((s) => (
+                  <li>
+                    <a
+                      class="shortlist-slot"
+                      href={`/${et.slug}/reserver?${new URLSearchParams({ debut: new Date(s).toISOString(), tz }).toString()}`}
+                    >
+                      <span>{capitalize(dayLabel(s, tz))}</span>
+                      <strong>{formatTime(s, tz)}</strong>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          <form class="tz tz--compact" method="get" action="/creneaux" data-tz-form>
+            <div class="field">
+              <label class="label" for="tz">
+                Fuseau horaire
+              </label>
+              <div class="tz-row">
+                <select class="select" id="tz" name="tz" data-autosubmit>
+                  {zones.map((z) => (
+                    <option value={z} selected={z === tz}>
+                      {zoneLabel(z)}
+                    </option>
+                  ))}
+                </select>
+                <button class="btn" type="submit" data-no-js>
+                  Appliquer
+                </button>
+              </div>
+            </div>
+          </form>
+          <div class="actions shortlist-more">
+            <a class={props.status === "ok" ? "btn" : "btn btn--primary"} href={fullHref}>
+              Voir toutes les disponibilités
+            </a>
+          </div>
+        </div>
+      </div>
+    </PublicPage>
+  );
+}
+
 export function ErrorPage(props: { meta: PageMeta; status: number; title: string; text: string; action?: { href: string; label: string } }) {
   return (
     <PublicPage {...props.meta} robots="noindex">

@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import Database from "better-sqlite3";
@@ -154,6 +154,26 @@ test("écrans d'administration", async ({ page }) => {
   await page.getByRole("button", { name: "Enregistrer" }).click();
   await expect(page.getByText("Contraste insuffisant")).toBeVisible();
   await shoot(page, "34-admin-reglages-erreur");
+});
+
+test("signature de mail", async ({ page, request }) => {
+  const png = await request.get(`${DEMO}/signature.png`);
+  expect(png.headers()["content-type"]).toBe("image/png");
+  writeFileSync(path.join(OUT, "50-signature-image.png"), await png.body());
+
+  await page.goto(`${DEMO}/creneaux`);
+  await expect(page.getByRole("heading", { name: "Réserver un échange" })).toBeVisible();
+  await shoot(page, "51-signature-creneaux");
+
+  await loginAdmin(page, DEMO);
+  await page.getByRole("link", { name: "Signature" }).click();
+  await expect(page.frameLocator(".signature-frame").getByText("Réserver un échange")).toBeVisible();
+  await page.waitForFunction(() => {
+    const frame = document.querySelector<HTMLIFrameElement>(".signature-frame");
+    const img = frame?.contentDocument?.querySelector("img");
+    return Boolean(img && img.complete && img.naturalWidth > 0);
+  });
+  await shoot(page, "52-admin-signature");
 });
 
 test("compte Google déconnecté", async ({ page }) => {

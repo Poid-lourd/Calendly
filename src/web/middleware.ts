@@ -26,13 +26,14 @@ export function securityHeaders(config: Config): MiddlewareHandler<Env> {
   return async (c, next) => {
     await next();
     const h = c.res.headers;
-    h.set("Content-Security-Policy", csp);
+    // Une route peut fixer sa propre politique (aperçu de signature, image de signature).
+    if (!h.has("Content-Security-Policy")) h.set("Content-Security-Policy", csp);
+    if (!h.has("X-Frame-Options")) h.set("X-Frame-Options", "DENY");
+    if (!h.has("Cross-Origin-Resource-Policy")) h.set("Cross-Origin-Resource-Policy", "same-origin");
     h.set("X-Content-Type-Options", "nosniff");
-    h.set("X-Frame-Options", "DENY");
     // same-origin conserve l'en-tête Origin sur les POST, nécessaire à la vérification CSRF.
     h.set("Referrer-Policy", "same-origin");
     h.set("Cross-Origin-Opener-Policy", "same-origin");
-    h.set("Cross-Origin-Resource-Policy", "same-origin");
     h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
     if (config.secureCookies) h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     const type = h.get("content-type") ?? "";

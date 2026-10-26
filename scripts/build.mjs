@@ -1,7 +1,7 @@
 // Construit le serveur (dist/server.js) et les ressources navigateur (dist/public/assets).
 // Les noms des ressources contiennent un hash, listé dans dist/manifest.json.
 import { spawn } from "node:child_process";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import * as esbuild from "esbuild";
 
@@ -11,6 +11,15 @@ const watch = process.argv.includes("--watch");
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(path.join(dist, "public", "assets"), { recursive: true });
+
+// Polices pour l'image de la signature de mail, rendue côté serveur.
+await mkdir(path.join(dist, "fonts"), { recursive: true });
+for (const weight of [400, 500, 600]) {
+  for (const subset of ["latin", "latin-ext"]) {
+    const file = `ibm-plex-sans-${subset}-${weight}-normal.woff`;
+    await copyFile(path.join(root, "node_modules/@fontsource/ibm-plex-sans/files", file), path.join(dist, "fonts", file));
+  }
+}
 
 const writeManifest = {
   name: "manifest",

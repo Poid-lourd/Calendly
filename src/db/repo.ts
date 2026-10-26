@@ -156,14 +156,25 @@ export class Repo {
 
   getSettings(): Settings {
     const r = this.db
-      .prepare("SELECT display_name, accent_color, avatar IS NOT NULL AS has_avatar, avatar_updated_at FROM settings WHERE id = 1")
+      .prepare(
+        `SELECT display_name, accent_color, avatar IS NOT NULL AS has_avatar, avatar_updated_at, signature_event_type_id,
+           signature_max_slots FROM settings WHERE id = 1`,
+      )
       .get() as Row;
     return {
       displayName: str(r.display_name),
       accentColor: str(r.accent_color),
       hasAvatar: r.has_avatar === 1,
       avatarUpdatedAt: nnum(r.avatar_updated_at),
+      signatureEventTypeId: nnum(r.signature_event_type_id),
+      signatureMaxSlots: num(r.signature_max_slots),
     };
+  }
+
+  updateSignature(input: { eventTypeId: number | null; maxSlots: number }): void {
+    this.db
+      .prepare("UPDATE settings SET signature_event_type_id = ?, signature_max_slots = ?, updated_at = ? WHERE id = 1")
+      .run(input.eventTypeId, input.maxSlots, this.now());
   }
 
   updateSettings(input: { displayName: string; accentColor: string }): void {

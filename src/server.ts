@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { serve } from "@hono/node-server";
 import { ConfigError, loadConfig } from "./config.js";
@@ -15,6 +15,7 @@ import { seedDemo } from "./seed.js";
 import { createApp } from "./web/app.js";
 import type { Assets } from "./web/context.js";
 import { RateLimiter } from "./web/ratelimit.js";
+import { SignatureRenderer } from "./web/signature.js";
 
 function loadAssets(): Assets {
   const dir = import.meta.dirname;
@@ -27,6 +28,14 @@ function loadAssets(): Assets {
     return v;
   };
   return { css: pick("app.css"), booking: pick("booking.js"), admin: pick("admin.js"), dir: path.join(dir, "public", "assets") };
+}
+
+// Polices WOFF copiées par le build, utilisées pour l'image de la signature.
+function fontFiles(): string[] {
+  const dir = path.join(import.meta.dirname, "fonts");
+  return readdirSync(dir)
+    .filter((f) => f.endsWith(".woff"))
+    .map((f) => path.join(dir, f));
 }
 
 async function main(): Promise<void> {
@@ -48,7 +57,8 @@ async function main(): Promise<void> {
   await bookings.recover();
   repo.purgeExpired();
 
-  const app = createApp({ config, repo, provider, mock, accounts, availability, bookings, limiter, assets: loadAssets(), now });
+  const signature = new SignatureRenderer(fontFiles());
+  const app = createApp({ config, repo, provider, mock, accounts, availability, bookings, limiter, signature, assets: loadAssets(), now });
   const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {
     log.info("serveur démarré", { port: info.port, provider: config.provider, baseUrl: config.baseUrl.toString() });
   });

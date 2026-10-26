@@ -8,6 +8,9 @@ export interface Settings {
   accentColor: string;
   hasAvatar: boolean;
   avatarUpdatedAt: number | null;
+  // Signature de mail : type d'événement proposé et nombre de créneaux montrés.
+  signatureEventTypeId: number | null;
+  signatureMaxSlots: number;
 }
 
 export interface GoogleAccount {

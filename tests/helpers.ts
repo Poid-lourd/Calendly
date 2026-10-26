@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import path from "node:path";
 import { openDatabase } from "../src/db/index.js";
 import { Repo } from "../src/db/repo.js";
 import { Availability } from "../src/domain/availability.js";
@@ -33,4 +34,10 @@ export async function firstSlots(ctx: Context, slug: string, days = 14): Promise
   const res = await ctx.availability.slots(et, ctx.clock.now, ctx.clock.now + days * 86_400_000, { fresh: true });
   if (!res.ok) throw new Error(res.message);
   return res.slots;
+}
+
+// Polices WOFF du paquet Fontsource, comme celles copiées par le build.
+export function fontFiles(): string[] {
+  const dir = path.resolve("node_modules/@fontsource/ibm-plex-sans/files");
+  return [400, 500, 600].flatMap((w) => ["latin", "latin-ext"].map((s) => path.join(dir, `ibm-plex-sans-${s}-${w}-normal.woff`)));
 }

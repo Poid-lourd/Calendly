@@ -4,7 +4,7 @@ import { MOCK_COMPANY_CALENDAR } from "./providers/mock.js";
 
 const H = (h: number, m = 0) => h * 60 + m;
 
-// Données de démonstration pour le mode simulé : un compte connecté, un planning, trois types d'événements.
+// Données de démonstration pour le mode simulé : un compte connecté, un planning, trois types d'événements, la signature.
 export async function seedDemo(repo: Repo, accounts: Accounts, email = "moi@exemple.test"): Promise<boolean> {
   if (accounts.provider.kind !== "mock") throw new Error("Données de démonstration réservées au mode simulé");
   if (repo.listEventTypes().length > 0 || repo.listAccounts().length > 0) return false;
@@ -39,7 +39,7 @@ export async function seedDemo(repo: Repo, accounts: Accounts, email = "moi@exem
     dailyLimit: null,
     active: true,
   };
-  repo.saveEventType(null, {
+  const echangeId = repo.saveEventType(null, {
     ...common,
     slug: "echange-30-min",
     title: "Échange de 30 minutes",
@@ -82,5 +82,6 @@ export async function seedDemo(repo: Repo, accounts: Accounts, email = "moi@exem
     visibility: "unlisted",
     blockingCalendarIds: [personal.id],
   });
+  repo.updateSignature({ eventTypeId: echangeId, maxSlots: 3 });
   return true;
 }

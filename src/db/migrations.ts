@@ -170,6 +170,14 @@ CREATE TABLE mock_events (
 );
 `,
   },
+  {
+    id: 2,
+    name: "signature de mail",
+    sql: `
+ALTER TABLE settings ADD COLUMN signature_event_type_id INTEGER REFERENCES event_types(id) ON DELETE SET NULL;
+ALTER TABLE settings ADD COLUMN signature_max_slots INTEGER NOT NULL DEFAULT 3 CHECK (signature_max_slots BETWEEN 1 AND 4);
+`,
+  },
 ];
 
 export function migrate(db: Database): void {

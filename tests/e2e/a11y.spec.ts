@@ -36,6 +36,8 @@ test("pages publiques", async ({ page }) => {
   await audit(page, "reprogrammation");
   await page.goto(`${BASE}/inexistant`);
   await audit(page, "404");
+  await page.goto(`${BASE}/creneaux`);
+  await audit(page, "créneaux de la signature");
 });
 
 test("administration", async ({ page }) => {
@@ -52,6 +54,7 @@ test("administration", async ({ page }) => {
     ["/admin/disponibilites/1", "planning"],
     ["/admin/agendas", "agendas"],
     ["/admin/reglages", "réglages"],
+    ["/admin/signature", "signature"],
   ]) {
     await page.goto(`${BASE}${path}`);
     await audit(page, label!);

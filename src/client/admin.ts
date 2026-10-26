@@ -126,3 +126,31 @@ if (fileInput && fileName) {
     fileName.textContent = fileInput.files?.[0]?.name ?? "Aucun fichier choisi";
   });
 }
+
+// Signature : copie du code HTML ou du bloc mis en forme.
+const code = document.querySelector<HTMLTextAreaElement>("[data-signature-code]");
+const copyStatus = document.querySelector<HTMLElement>("[data-copy-status]");
+const report = (message: string) => {
+  if (copyStatus) copyStatus.textContent = message;
+};
+document.querySelector("[data-copy-code]")?.addEventListener("click", () => {
+  if (!code) return;
+  navigator.clipboard.writeText(code.value).then(
+    () => report("Code HTML copié."),
+    () => {
+      code.select();
+      report("Copie automatique refusée. Le code est sélectionné, copiez-le avec le clavier.");
+    },
+  );
+});
+document.querySelector("[data-copy-rich]")?.addEventListener("click", () => {
+  if (!code) return;
+  const item = new ClipboardItem({
+    "text/html": new Blob([code.value], { type: "text/html" }),
+    "text/plain": new Blob([code.value], { type: "text/plain" }),
+  });
+  navigator.clipboard.write([item]).then(
+    () => report("Signature copiée. Collez-la dans l'éditeur de signature."),
+    () => report("Copie automatique refusée. Utilisez le code HTML."),
+  );
+});

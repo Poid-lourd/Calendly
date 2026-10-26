@@ -7,6 +7,7 @@ import type { Accounts } from "../providers/accounts.js";
 import type { MockProvider } from "../providers/mock.js";
 import type { CalendarProvider } from "../providers/types.js";
 import type { RateLimiter } from "./ratelimit.js";
+import type { SignatureRenderer } from "./signature.js";
 
 export interface Assets {
   // Chemins publics des fichiers générés (avec hash).
@@ -26,6 +27,7 @@ export interface Deps {
   availability: Availability;
   bookings: Bookings;
   limiter: RateLimiter;
+  signature: SignatureRenderer;
   assets: Assets;
   now: () => number;
 }

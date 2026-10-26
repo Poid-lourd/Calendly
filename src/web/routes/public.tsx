@@ -4,6 +4,7 @@ import { DateTime } from "luxon";
 import { z } from "zod";
 import type { Booking, EventType } from "../../db/types.js";
 import { AvailabilityCheckError, BookingStateError, SlotUnavailableError } from "../../domain/bookings.js";
+import { selectSignatureSlots } from "../../domain/signature.js";
 import { groupByLocalDate } from "../../domain/slots.js";
 import { sha256 } from "../../lib/crypto.js";
 import { log } from "../../lib/log.js";
@@ -24,6 +25,7 @@ import {
   type PickerProps,
   ReschedulePage,
   RescheduleConfirmPage,
+  ShortlistPage,
 } from "../views/public.js";
 
 export const RESERVED_SLUGS = new Set([
@@ -37,6 +39,8 @@ export const RESERVED_SLUGS = new Set([
   "favicon.ico",
   "robots.txt",
   "api",
+  "creneaux",
+  "signature.png",
 ]);
 
 const MINUTE = 60_000;
@@ -159,6 +163,26 @@ export function publicRoutes(app: Hono<Env>): void {
   });
 
   app.get("/robots.txt", (c) => c.text("User-agent: *\nDisallow: /admin\nDisallow: /b/\nDisallow: /auth/\n"));
+
+  // Quelques créneaux de la semaine, page ouverte depuis la signature de mail.
+  app.get("/creneaux", async (c) => {
+    const deps = c.get("deps");
+    if (limited(c, "picker", 120, MINUTE)) return tooMany(c);
+    const selection = await selectSignatureSlots(deps.repo, deps.availability, deps.now());
+    if (selection.status === "disabled" || !selection.eventType) return c.redirect("/", 302);
+    const { tz, source } = resolveTz(c, selection.zone);
+    return c.html(
+      <ShortlistPage
+        meta={meta(c, "Réserver un échange", ["booking"])}
+        et={selection.eventType}
+        status={selection.status}
+        week={selection.week}
+        slots={selection.slots}
+        tz={tz}
+        tzSource={source}
+      />,
+    );
+  });
 
   // Étapes 1 et 2 : jour puis horaire.
   app.get("/:slug", async (c) => {

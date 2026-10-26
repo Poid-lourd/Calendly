@@ -1,6 +1,7 @@
 import { serveStatic } from "@hono/node-server/serve-static";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { selectSignatureSlots } from "../domain/signature.js";
 import { log } from "../lib/log.js";
 import { darken } from "./color.js";
 import type { Deps, Env } from "./context.js";
@@ -44,6 +45,19 @@ export function createApp(deps: Deps): Hono<Env> {
     c.header("Content-Type", "text/css; charset=utf-8");
     c.header("Cache-Control", c.req.query("v") ? "public, max-age=31536000, immutable" : "no-cache");
     return c.body(`:root{--accent:${accent};--accent-hover:${darken(accent)};}\n`);
+  });
+
+  // Image de la signature de mail : affichée par les messageries, donc ouverte aux autres origines et jamais mise en cache.
+  app.get("/signature.png", async (c) => {
+    const now = deps.now();
+    const selection = await selectSignatureSlots(deps.repo, deps.availability, now);
+    const png = deps.signature.render(selection, now);
+    c.header("Content-Type", "image/png");
+    c.header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    c.header("Pragma", "no-cache");
+    c.header("Expires", "0");
+    c.header("Cross-Origin-Resource-Policy", "cross-origin");
+    return c.body(new Uint8Array(png));
   });
 
   app.get("/media/avatar", (c) => {

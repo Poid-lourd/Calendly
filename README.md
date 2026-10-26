@@ -69,6 +69,20 @@ Dans `/admin/agendas`, *Connecter un compte Google* :
 
 Créez ensuite un planning dans *Disponibilités*, puis un type d'événement en choisissant l'agenda de destination (où l'événement est créé) et les agendas bloquants.
 
+## Signature de mail
+
+Le menu *Signature* de l'admin génère un bloc à ajouter à votre signature :
+
+- un titre « Réserver un échange » ;
+- une image qui montre quelques créneaux libres de la semaine (1 à 4, répartis un par jour en priorité), recalculée par le serveur à chaque ouverture du message. Elle mène à une page qui liste ces créneaux, chacun réservable en un clic ;
+- un lien « Plus de disponibilités dans les semaines à venir » vers le calendrier complet.
+
+S'il ne reste rien cette semaine, l'image montre la semaine suivante. Les heures de l'image sont celles du planning (le fuseau du destinataire est inconnu à l'ouverture d'un mail) ; la page de réservation, elle, s'affiche dans le fuseau du visiteur.
+
+Dans Infomaniak Mail : *Paramètres* → *Signatures* → votre adresse → nouvelle signature → édition du code source HTML → coller le code copié depuis l'admin à la suite de votre signature habituelle. À la rédaction, la signature se choisit dans le menu déroulant des signatures. D'après la FAQ Infomaniak, la gestion de plusieurs signatures dépend de l'offre (my kSuite+).
+
+Une messagerie qui bloque les images affiche le titre, le texte alternatif et le lien vers le calendrier. Les messageries qui passent par un proxy d'images peuvent garder une copie quelques minutes.
+
 ## Déployer sur une VM
 
 Prérequis : Docker Engine avec le plugin Compose, un nom de domaine dont l'enregistrement DNS pointe vers la VM, ports 80 et 443 ouverts.

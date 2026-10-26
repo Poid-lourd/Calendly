@@ -5,13 +5,14 @@ import { Document, type PageMeta } from "./layout.js";
 import { locationLabel } from "./public.js";
 import { Csrf, describedBy, Empty, Field, Notice } from "./ui.js";
 
-type Section = "reservations" | "types" | "disponibilites" | "agendas" | "reglages";
+type Section = "reservations" | "types" | "disponibilites" | "agendas" | "signature" | "reglages";
 
 const NAV: [Section, string, string][] = [
   ["reservations", "Réservations", "/admin/reservations"],
   ["types", "Types d'événements", "/admin/types"],
   ["disponibilites", "Disponibilités", "/admin/disponibilites"],
   ["agendas", "Agendas", "/admin/agendas"],
+  ["signature", "Signature", "/admin/signature"],
   ["reglages", "Réglages", "/admin/reglages"],
 ];
 
@@ -1042,6 +1043,100 @@ export function SettingsPage(props: { meta: AdminMeta; values: SettingsValues; e
           </button>
         </div>
       </form>
+    </AdminPage>
+  );
+}
+
+// ===== Signature de mail =====
+
+export function SignaturePage(props: {
+  meta: AdminMeta;
+  eventTypes: EventType[];
+  eventTypeId: string;
+  maxSlots: string;
+  error?: string | undefined;
+  html: string | null;
+}) {
+  return (
+    <AdminPage {...props.meta}>
+      <PageHead
+        title="Signature de mail"
+        text="Bloc à ajouter à votre signature. Les créneaux affichés sont recalculés à chaque ouverture du message."
+      />
+      {props.eventTypes.length === 0 ? (
+        <Empty title="Aucun type d'événement actif." actions={<a class="btn" href="/admin/types">Types d'événements</a>}>
+          La signature propose les créneaux d'un type d'événement actif.
+        </Empty>
+      ) : (
+        <div class="stack admin-form">
+          <form class="section form" method="post" action="/admin/signature" novalidate>
+            <h2>Créneaux proposés</h2>
+            {props.error ? <Notice kind="error" title="Enregistrement impossible">{props.error}</Notice> : null}
+            <Csrf token={props.meta.csrf} />
+            <div class="form-grid form-grid--2">
+              <Field id="eventTypeId" label="Type d'événement">
+                <select class="select" id="eventTypeId" name="eventTypeId">
+                  {props.eventTypes.map((et) => (
+                    <option value={String(et.id)} selected={String(et.id) === props.eventTypeId}>
+                      {et.title}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field id="maxSlots" label="Créneaux montrés" hint="Répartis sur la semaine, un par jour en priorité.">
+                <select class="select" id="maxSlots" name="maxSlots" aria-describedby="maxSlots-aide">
+                  {["1", "2", "3", "4"].map((n) => (
+                    <option value={n} selected={n === props.maxSlots}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <div>
+              <button class="btn btn--primary" type="submit">
+                Enregistrer
+              </button>
+            </div>
+          </form>
+
+          {props.html ? (
+            <>
+              <section class="section">
+                <h2>Aperçu</h2>
+                <iframe class="signature-frame" src="/admin/signature/apercu" title="Aperçu de la signature"></iframe>
+                <p class="hint">
+                  L'image donne les prochains créneaux libres au moment où le destinataire ouvre le message. Le titre et le lien restent lisibles si sa messagerie bloque les images.
+                </p>
+              </section>
+
+              <section class="section">
+                <h2>Ajouter à Infomaniak Mail</h2>
+                <ol class="steps">
+                  <li>Copiez le bloc ci-dessous.</li>
+                  <li>Dans Infomaniak Mail, ouvrez Paramètres, puis Signatures, et choisissez votre adresse.</li>
+                  <li>Créez une signature, passez en édition du code source HTML et collez le code après votre signature habituelle.</li>
+                  <li>À la rédaction, choisissez cette signature dans le menu déroulant des signatures.</li>
+                </ol>
+                <Field id="signatureCode" label="Code HTML">
+                  <textarea class="textarea code-area" id="signatureCode" readonly data-signature-code>
+                    {props.html}
+                  </textarea>
+                </Field>
+                <div class="actions">
+                  <button class="btn" type="button" data-copy-code>
+                    Copier le code HTML
+                  </button>
+                  <button class="btn" type="button" data-copy-rich>
+                    Copier la signature mise en forme
+                  </button>
+                  <span class="hint" role="status" data-copy-status></span>
+                </div>
+              </section>
+            </>
+          ) : null}
+        </div>
+      )}
     </AdminPage>
   );
 }

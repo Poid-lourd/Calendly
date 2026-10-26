@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config.js";
 import { RateLimiter } from "../../src/web/ratelimit.js";
 import { createApp } from "../../src/web/app.js";
-import { createContext, firstSlots } from "../helpers.js";
+import { SignatureRenderer } from "../../src/web/signature.js";
+import { createContext, firstSlots, fontFiles } from "../helpers.js";
 
 const BASE = "http://localhost:3000";
+let signature: SignatureRenderer | undefined;
 
 async function setup(opts: { latencyMs?: number } = {}) {
   const ctx = await createContext({ latencyMs: opts.latencyMs ?? 0 });
+  signature ??= new SignatureRenderer(fontFiles());
   const config = loadConfig({ CALENDAR_PROVIDER: "mock", ADMIN_EMAILS: "admin@exemple.test", BASE_URL: BASE });
   const app = createApp({
     config,
@@ -18,6 +21,7 @@ async function setup(opts: { latencyMs?: number } = {}) {
     availability: ctx.availability,
     bookings: ctx.bookings,
     limiter: new RateLimiter(() => ctx.clock.now),
+    signature,
     assets: { css: "/assets/app.css", booking: "/assets/booking.js", admin: "/assets/admin.js", dir: null },
     now: () => ctx.clock.now,
   });
@@ -248,5 +252,53 @@ describe("administration", () => {
     // Un state ne sert qu'une fois.
     const replay = await app.request(`${BASE}/auth/google/callback?state=${ok2.state}&code=${ok2.code}`, { headers: { cookie: ok2.oauthCookie } });
     expect(replay.headers.get("location")).toBe("/admin/connexion?erreur=expire");
+  });
+});
+
+describe("signature de mail", () => {
+  it("image PNG dynamique, lisible depuis une autre origine et jamais en cache", async () => {
+    const { app } = await setup();
+    const res = await app.request(`${BASE}/signature.png`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    expect(res.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
+    expect(res.headers.get("set-cookie")).toBeNull();
+    const bytes = Buffer.from(await res.arrayBuffer());
+    expect(bytes.subarray(0, 4).toString("hex")).toBe("89504e47");
+  });
+
+  it("la page des créneaux propose la sélection, liée au formulaire de réservation", async () => {
+    const { app } = await setup();
+    const html = await (await app.request(`${BASE}/creneaux?tz=Europe/Paris`)).text();
+    const links = html.match(/href="\/echange-30-min\/reserver\?[^"]+"/g) ?? [];
+    expect(links.length).toBe(3);
+    expect(html).toContain("Cette semaine");
+    expect(html).toContain('href="/echange-30-min?tz=Europe%2FParis"');
+  });
+
+  it("sans type configuré, la page renvoie vers l'accueil", async () => {
+    const { app, ctx } = await setup();
+    ctx.repo.updateSignature({ eventTypeId: null, maxSlots: 3 });
+    const res = await app.request(`${BASE}/creneaux`);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/");
+    expect((await app.request(`${BASE}/signature.png`)).status).toBe(200);
+  });
+
+  it("administration réservée, aperçu isolé avec sa propre politique", async () => {
+    const { app, ctx } = await setup();
+    expect((await app.request(`${BASE}/admin/signature`)).headers.get("location")).toBe("/admin/connexion");
+    const sid = "s".repeat(43);
+    const { sha256 } = await import("../../src/lib/crypto.js");
+    ctx.repo.createSession(sha256(sid), "admin@exemple.test", 60_000);
+    const page = await app.request(`${BASE}/admin/signature`, { headers: { cookie: `sid=${sid}` } });
+    const html = await page.text();
+    expect(html).toContain("Signature de mail");
+    expect(html).toContain("http://localhost:3000/signature.png");
+    const preview = await app.request(`${BASE}/admin/signature/apercu`, { headers: { cookie: `sid=${sid}` } });
+    expect(preview.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
+    expect(preview.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+    expect(await preview.text()).toContain("Réserver un échange");
   });
 });

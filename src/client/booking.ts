@@ -207,3 +207,25 @@ if (root) {
     }
   }
 }
+
+// Liste courte ouverte depuis la signature : fuseau détecté puis page rechargée dans ce fuseau.
+const shortlist = document.querySelector<HTMLElement>("[data-tz-auto]");
+if (shortlist) {
+  for (const el of Array.from(shortlist.querySelectorAll<HTMLElement>("[data-no-js]"))) el.hidden = true;
+  const select = shortlist.querySelector<HTMLSelectElement>("select[data-autosubmit]");
+  select?.addEventListener("change", () => {
+    setTzCookie(select.value);
+    select.form?.submit();
+  });
+  if (shortlist.dataset.tzSource === "default") {
+    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (detected) {
+      setTzCookie(detected);
+      if (detected !== shortlist.dataset.tz) {
+        const url = new URL(location.href);
+        url.searchParams.set("tz", detected);
+        location.replace(url.toString());
+      }
+    }
+  }
+}

@@ -175,3 +175,26 @@ test.describe("sans JavaScript", () => {
     await expect(page.getByText("Téléphone, +33 1 23 45 67 89")).toBeVisible();
   });
 });
+
+test("depuis la signature de mail : créneau de la semaine puis réservation", async ({ page }) => {
+  await page.goto(`${BASE}/creneaux`);
+  await expect(page.getByRole("heading", { name: "Réserver un échange" })).toBeVisible();
+  const slots = page.locator(".shortlist-slot");
+  expect(await slots.count()).toBeGreaterThan(0);
+  expect(await slots.count()).toBeLessThanOrEqual(3);
+  const time = (await slots.first().locator("strong").textContent())!.trim();
+  const href = await slots.first().getAttribute("href");
+  await slots.first().click();
+  await expect(page.locator(".chosen")).toContainText(time);
+  await page.getByLabel("Nom").fill("Depuis Signature");
+  await page.getByLabel("Email").fill("signature@exemple.fr");
+  await page.getByRole("button", { name: "Confirmer la réservation" }).click();
+  await expect(page.getByRole("heading", { name: "Réservation confirmée" })).toBeVisible();
+
+  // Le créneau réservé n'est plus proposé.
+  await page.goto(`${BASE}/creneaux`);
+  const hrefs = await page.locator(".shortlist-slot").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
+  expect(hrefs).not.toContain(href);
+  await page.getByRole("link", { name: "Voir toutes les disponibilités" }).click();
+  await expect(page.getByRole("heading", { name: "Choisissez un jour et un horaire" })).toBeVisible();
+});

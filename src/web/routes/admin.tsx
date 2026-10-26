@@ -24,7 +24,9 @@ import {
   type ScheduleValues,
   SettingsPage,
   type SettingsValues,
+  SignaturePage,
 } from "../views/admin.js";
+import { signatureHtml } from "../signature.js";
 import { requireAdmin } from "./auth.js";
 import { RESERVED_SLUGS, notFound } from "./public.js";
 
@@ -592,6 +594,59 @@ export function adminRoutes(app: Hono<Env>): void {
     await deps.accounts.remove(id);
     deps.availability.invalidate();
     return c.redirect("/admin/agendas?ok=retire", 303);
+  });
+
+  // Signature de mail
+  const renderSignature = (c: Ctx, form?: { eventTypeId: string; maxSlots: string; error: string }) => {
+    const deps = c.get("deps");
+    const settings = deps.repo.getSettings();
+    const eventTypes = deps.repo.listEventTypes().filter((et) => et.active);
+    const configured = eventTypes.find((et) => et.id === settings.signatureEventTypeId) ?? null;
+    return c.html(
+      <SignaturePage
+        meta={adminMeta(c, "Signature de mail", "signature")}
+        eventTypes={eventTypes}
+        eventTypeId={form?.eventTypeId ?? String(configured?.id ?? eventTypes[0]?.id ?? "")}
+        maxSlots={form?.maxSlots ?? String(settings.signatureMaxSlots)}
+        error={form?.error}
+        html={configured ? signatureHtml({ baseUrl: deps.config.baseUrl, slug: configured.slug, accent: settings.accentColor }) : null}
+      />,
+      form ? 400 : 200,
+    );
+  };
+
+  admin.get("/signature", (c) => renderSignature(c));
+
+  admin.post("/signature", async (c) => {
+    const deps = c.get("deps");
+    const body = await c.req.parseBody({ all: true });
+    const eventTypeId = field(body, "eventTypeId");
+    const maxSlots = field(body, "maxSlots");
+    const et = deps.repo.getEventType(Number(eventTypeId));
+    const max = intIn(maxSlots, 1, 4);
+    if (!et || !et.active || max === null) {
+      return renderSignature(c, { eventTypeId, maxSlots, error: "Choisissez un type d'événement actif et un nombre de créneaux entre 1 et 4." });
+    }
+    deps.repo.updateSignature({ eventTypeId: et.id, maxSlots: max });
+    return c.redirect("/admin/signature?ok=enregistre", 303);
+  });
+
+  // Aperçu isolé dans un cadre : le bloc utilise des styles en ligne, interdits par la politique des pages de l'admin.
+  admin.get("/signature/apercu", (c) => {
+    const deps = c.get("deps");
+    const settings = deps.repo.getSettings();
+    const et = settings.signatureEventTypeId === null ? null : deps.repo.getEventType(settings.signatureEventTypeId);
+    if (!et) return c.body(null, 404);
+    const name = settings.displayName.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+    c.header("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'self'; frame-ancestors 'self'");
+    c.header("X-Frame-Options", "SAMEORIGIN");
+    return c.html(
+      `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><base target="_blank"><title>Aperçu</title></head>` +
+        `<body style="margin:16px;background:#ffffff;color:#171716;font-family:'IBM Plex Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:14px;">` +
+        (name ? `<p style="margin:0;">${name}</p>` : "") +
+        signatureHtml({ baseUrl: deps.config.baseUrl, slug: et.slug, accent: settings.accentColor }) +
+        `</body></html>`,
+    );
   });
 
   // Réglages

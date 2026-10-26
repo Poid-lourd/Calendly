@@ -40,6 +40,17 @@ Choix faits là où le cahier des charges laissait la main, avec la raison.
 - **Couleur d'accent** : refusée si le contraste avec le blanc est inférieur à 4,5:1, pour garder les boutons et la sélection conformes WCAG AA.
 - **Ordre des types d'événements** : ordre de création.
 
+## Signature de mail
+
+- **Créneaux vivants dans un mail** : une signature est du HTML figé au moment de l'envoi, sans JavaScript. Seule une image, chargée à l'ouverture du message, peut montrer les créneaux du moment. Elle est générée en PNG (les messageries n'affichent pas le SVG), toujours avec un code 200, et n'est jamais mise en cache (`no-store`).
+- **Une image cliquable plutôt qu'un lien par créneau** : un lien par créneau figerait des horaires peut-être pris depuis. L'image mène à `/creneaux`, qui recalcule la même sélection et lie chaque créneau au formulaire de réservation, avec revérification à la soumission.
+- **Sélection partielle** : 1 à 4 créneaux (3 par défaut), un par jour d'abord en alternant matin et après-midi, puis d'autres espacés d'au moins deux heures. Semaine en cours, sinon semaine suivante.
+- **Fuseau de l'image** : celui du planning, indiqué sous les créneaux.
+- **Rendu** : resvg (binaires précompilés, sans compilation) et la police du site. Les fichiers WOFF de Fontsource sont convertis en TrueType au démarrage, la conversion WOFF 1.0 étant une simple décompression des tables.
+- **Origine** : l'image est servie avec `Cross-Origin-Resource-Policy: cross-origin` pour s'afficher dans un webmail ; le reste du site garde `same-origin`.
+- **Aperçu dans l'admin** : le bloc utilise des styles en ligne, requis par les messageries mais interdits par la politique de sécurité des pages. Il s'affiche dans un cadre servi avec sa propre politique.
+- **Langue** : français, comme le reste de l'application.
+
 ## Sécurité
 
 - **Scopes Google** : connexion admin `openid email` seulement. Connexion d'un agenda : `calendar.calendarlist.readonly` (liste des agendas), `calendar.events.freebusy` (disponibilités sur les agendas accessibles, partagés compris), `calendar.events` (création et modification d'événements, y compris dans un agenda partagé dont on n'est pas propriétaire, ce que `calendar.events.owned` ne permettrait pas). Scopes vérifiés dans la référence de la bibliothèque officielle `@googleapis/calendar`.
