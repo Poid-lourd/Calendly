@@ -947,6 +947,29 @@ td[aria-selected="true"] a.day {
 }
 
 /* Pages d'erreur et pages étroites */
+.public-foot {
+  max-width: 1040px;
+  margin: var(--s12) auto 0;
+  font-size: 13px;
+  color: var(--text-2);
+  text-align: center;
+}
+
+.prose {
+  max-width: 640px;
+  margin: var(--s8) auto 0;
+  display: grid;
+  gap: var(--s3);
+}
+
+.prose h2 {
+  margin-top: var(--s5);
+}
+
+.prose p {
+  color: var(--text-2);
+}
+
 .narrow {
   max-width: 440px;
   margin: var(--s12) auto 0;

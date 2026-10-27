@@ -50,6 +50,9 @@ export function PublicPage(props: PageMeta & { children: Child }) {
   return (
     <Document {...props} bodyClass="public">
       <main id="contenu">{props.children}</main>
+      <footer class="public-foot">
+        <a href="/confidentialite">Confidentialité</a>
+      </footer>
     </Document>
   );
 }

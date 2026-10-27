@@ -101,6 +101,9 @@ test("écrans publics", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Rendez-vous annulé" })).toBeVisible();
   await shoot(page, "13-rendez-vous-annule");
 
+  await page.goto(`${DEMO}/confidentialite`);
+  await shoot(page, "17-confidentialite");
+
   await page.goto(`${DEMO}/page-inconnue`);
   await shoot(page, "14-erreur-404");
 });

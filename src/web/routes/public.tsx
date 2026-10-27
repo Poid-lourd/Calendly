@@ -25,6 +25,7 @@ import {
   type PickerProps,
   ReschedulePage,
   RescheduleConfirmPage,
+  PrivacyPage,
   ShortlistPage,
 } from "../views/public.js";
 
@@ -41,6 +42,7 @@ export const RESERVED_SLUGS = new Set([
   "api",
   "creneaux",
   "signature.png",
+  "confidentialite",
 ]);
 
 const MINUTE = 60_000;
@@ -160,6 +162,17 @@ export function publicRoutes(app: Hono<Env>): void {
     const eventTypes = c.get("deps").repo.listPublicEventTypes();
     const settings = c.get("deps").repo.getSettings();
     return c.html(<HomePage meta={meta(c, settings.displayName || "Prendre rendez-vous")} eventTypes={eventTypes} />);
+  });
+
+  app.get("/confidentialite", (c) => {
+    const deps = c.get("deps");
+    return c.html(
+      <PrivacyPage
+        meta={meta(c, "Politique de confidentialité")}
+        contact={deps.config.adminEmails[0] ?? null}
+        baseUrl={deps.config.baseUrl.origin}
+      />,
+    );
   });
 
   app.get("/robots.txt", (c) => c.text("User-agent: *\nDisallow: /admin\nDisallow: /b/\nDisallow: /auth/\n"));

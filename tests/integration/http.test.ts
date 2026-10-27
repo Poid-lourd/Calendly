@@ -302,3 +302,15 @@ describe("signature de mail", () => {
     expect(await preview.text()).toContain("Réserver un échange");
   });
 });
+
+describe("politique de confidentialité", () => {
+  it("page publique liée depuis chaque page, avec la mention Limited Use", async () => {
+    const { app } = await setup();
+    const res = await app.request(`${BASE}/confidentialite`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Google API Services User Data Policy");
+    expect(html).toContain("mailto:admin@exemple.test");
+    expect(await (await app.request(`${BASE}/`)).text()).toContain('href="/confidentialite"');
+  });
+});

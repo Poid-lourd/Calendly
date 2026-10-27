@@ -772,6 +772,73 @@ export function ShortlistPage(props: {
   );
 }
 
+// Politique de confidentialité, exigée par Google pour publier l'application OAuth.
+export function PrivacyPage(props: { meta: PageMeta; contact: string | null; baseUrl: string }) {
+  const name = props.meta.settings.displayName || "le responsable de ce site";
+  return (
+    <PublicPage {...props.meta}>
+      <article class="prose">
+        <h1>Politique de confidentialité</h1>
+        <p class="muted">Service de prise de rendez-vous {props.baseUrl}, exploité par {name}.</p>
+
+        <h2>Données collectées</h2>
+        <p>Lors d'une réservation : nom, adresse email, note facultative, fuseau horaire et horaire choisi.</p>
+        <p>
+          Pour l'administrateur du service : adresse email du compte Google utilisé pour se connecter, et jetons d'accès aux
+          agendas Google qu'il a connectés.
+        </p>
+
+        <h2>Utilisation</h2>
+        <p>
+          Ces données servent uniquement à organiser le rendez-vous : vérifier les disponibilités, créer l'événement dans Google
+          Agenda, envoyer l'invitation par Google, permettre l'annulation et la reprogrammation par lien.
+        </p>
+        <p>Elles ne sont ni vendues, ni partagées avec des tiers, ni utilisées à des fins publicitaires ou statistiques.</p>
+
+        <h2>Données Google</h2>
+        <p>
+          Le service accède aux agendas Google de l'administrateur avec son accord : liste des agendas, disponibilités, création
+          et modification des événements de rendez-vous. Ces données ne sont lues que pour calculer les créneaux libres et gérer
+          les rendez-vous ; elles ne sont pas conservées au-delà de ce besoin, sauf l'identifiant et la liste des agendas.
+        </p>
+        <p>
+          L'utilisation et le transfert des informations reçues des API Google respectent la{" "}
+          <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener noreferrer">
+            Google API Services User Data Policy
+          </a>
+          , y compris les exigences d'utilisation limitée (Limited Use).
+        </p>
+
+        <h2>Conservation et sécurité</h2>
+        <p>
+          Les données sont stockées sur le serveur du service. Les jetons d'accès Google sont chiffrés. Les réservations sont
+          conservées tant que l'administrateur ne les supprime pas.
+        </p>
+
+        <h2>Cookies</h2>
+        <p>
+          Cookies techniques uniquement : protection des formulaires, fuseau horaire choisi, session de l'administrateur. Aucun
+          cookie publicitaire ni outil de mesure d'audience.
+        </p>
+
+        <h2>Vos droits</h2>
+        <p>
+          Vous pouvez demander l'accès, la rectification ou la suppression de vos données
+          {props.contact ? (
+            <>
+              {" "}
+              en écrivant à <a href={`mailto:${props.contact}`}>{props.contact}</a>
+            </>
+          ) : (
+            " auprès de l'organisateur du rendez-vous"
+          )}
+          . L'administrateur peut retirer l'accès à ses agendas à tout moment depuis son compte Google.
+        </p>
+      </article>
+    </PublicPage>
+  );
+}
+
 export function ErrorPage(props: { meta: PageMeta; status: number; title: string; text: string; action?: { href: string; label: string } }) {
   return (
     <PublicPage {...props.meta} robots="noindex">
