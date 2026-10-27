@@ -114,12 +114,16 @@ echo
 
 say "Sauvegarde quotidienne"
 CRON_LINE="17 3 * * * cd $APP_DIR && scripts/backup.sh >> backups/backup.log 2>&1"
-if ! crontab -l 2>/dev/null | grep -qF "scripts/backup.sh"; then
-  mkdir -p backups
-  (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
-  echo "Sauvegarde programmée chaque nuit à 3 h 17 dans $APP_DIR/backups."
-else
+# crontab -l échoue quand l'utilisateur n'a encore aucune tâche : ce cas ne doit pas interrompre le script.
+CURRENT_CRON="$(crontab -l 2>/dev/null || true)"
+if ! command -v crontab >/dev/null 2>&1; then
+  echo "cron absent : sauvegarde non programmée. Installez-le avec sudo apt-get install cron puis relancez ce script."
+elif printf '%s\n' "$CURRENT_CRON" | grep -qF "scripts/backup.sh"; then
   echo "Déjà programmée."
+else
+  mkdir -p backups
+  printf '%s\n%s\n' "$CURRENT_CRON" "$CRON_LINE" | sed '/^$/d' | crontab -
+  echo "Sauvegarde programmée chaque nuit à 3 h 17 dans $APP_DIR/backups."
 fi
 
 say "Terminé"
