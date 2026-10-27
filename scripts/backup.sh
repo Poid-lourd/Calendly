@@ -9,5 +9,6 @@ INNER=$(docker compose -f "$COMPOSE_FILE" exec -T app node scripts/backup.mjs | 
 NAME=$(basename "$INNER")
 docker compose -f "$COMPOSE_FILE" cp "app:$INNER" "backups/$NAME"
 docker compose -f "$COMPOSE_FILE" exec -T app rm -f "$INNER"
+# shellcheck disable=SC2012 # noms générés par ce script, sans espace
 ls -1t backups/app-*.db 2>/dev/null | tail -n +31 | xargs -r rm -f
 echo "Sauvegarde : backups/$NAME"

@@ -85,6 +85,20 @@ Une messagerie qui bloque les images affiche le titre, le texte alternatif et le
 
 ## Déployer sur une VM
 
+### En une commande (Ubuntu)
+
+Une fois connecté en SSH à la VM :
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Poid-lourd/calendly/main/scripts/install-vm.sh | bash
+```
+
+Le script installe Docker, clone le dépôt dans `~/rendez-vous`, pose les questions nécessaires (domaine, mode Google ou simulé, adresses admin, identifiants OAuth), génère `ENCRYPTION_KEY`, démarre l'application derrière Caddy, ouvre les ports 80 et 443 si ufw est actif et programme une sauvegarde quotidienne. Sans nom de domaine, il propose une adresse `IP.sslip.io` qui obtient un vrai certificat HTTPS. En mode simulé, il génère une adresse admin aléatoire qui sert de mot de passe sur l'écran de connexion simulé.
+
+Relancer la même commande met l'application à jour (sauvegarde, `git pull`, reconstruction) en conservant `.env`.
+
+### Pas à pas
+
 Prérequis : Docker Engine avec le plugin Compose, un nom de domaine dont l'enregistrement DNS pointe vers la VM, ports 80 et 443 ouverts.
 
 ```sh
