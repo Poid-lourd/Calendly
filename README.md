@@ -69,6 +69,8 @@ Dans `/admin/agendas`, *Connecter un compte Google* :
 
 Créez ensuite un planning dans *Disponibilités*, puis un type d'événement en choisissant l'agenda de destination (où l'événement est créé) et les agendas bloquants.
 
+Chaque plage du planning accepte un nombre de créneaux. Exemple : lundi 13:00–15:00, 2 créneaux. Le site ne propose alors que deux rendez-vous dans la plage, choisis parmi les horaires libres des agendas bloquants et espacés au mieux (13:00 et 14:00 si tout est libre). Une réservation en consomme un. Sans nombre, tous les horaires libres de la plage sont proposés.
+
 ## Signature de mail
 
 Le menu *Signature* de l'admin génère un bloc à ajouter à votre signature :

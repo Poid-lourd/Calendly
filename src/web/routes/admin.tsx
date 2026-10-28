@@ -101,6 +101,9 @@ function defaultEventTypeValues(deps: Deps): EventTypeValues {
   const accounts = new Set(deps.repo.listAccounts().filter((a) => a.status === "connected").map((a) => a.id));
   const calendars = deps.repo.listCalendars();
   const destination = calendars.find((c) => accounts.has(c.accountId) && c.isPrimary && isWritable(c)) ?? calendars.find(isWritable);
+  // Bloquants par défaut : l'agenda de destination et les autres agendas dont un compte connecté est propriétaire.
+  const owned = calendars.filter((c) => accounts.has(c.accountId) && c.present && c.accessRole === "owner").map((c) => c.id);
+  const blocking = new Set([...(destination ? [destination.id] : []), ...owned]);
   return {
     title: "",
     slug: "",
@@ -118,7 +121,7 @@ function defaultEventTypeValues(deps: Deps): EventTypeValues {
     dailyLimit: "",
     visibility: "public",
     active: true,
-    blocking: destination ? [String(destination.id)] : [],
+    blocking: [...blocking].map(String),
   };
 }
 
@@ -220,16 +223,21 @@ function validateEventType(deps: Deps, v: EventTypeValues, id: number | null): {
 
 // ===== Plannings : formulaire =====
 
-function parseRanges(starts: string[], ends: string[]): { ranges: MinuteRange[]; raw: { start: string; end: string }[]; error: string | null } {
-  const raw: { start: string; end: string }[] = [];
+function parseRanges(
+  starts: string[],
+  ends: string[],
+  counts: string[],
+): { ranges: MinuteRange[]; raw: { start: string; end: string; count: string }[]; error: string | null } {
+  const raw: { start: string; end: string; count: string }[] = [];
   const ranges: MinuteRange[] = [];
   let error: string | null = null;
   const n = Math.max(starts.length, ends.length);
   for (let i = 0; i < n; i++) {
     const s = (starts[i] ?? "").trim();
     const e = (ends[i] ?? "").trim();
+    const count = (counts[i] ?? "").trim();
     if (!s && !e) continue;
-    raw.push({ start: s, end: e });
+    raw.push({ start: s, end: e, count });
     const start = timeToMinutes(s);
     let end = timeToMinutes(e);
     if (end === 0) end = 1440;
@@ -241,7 +249,16 @@ function parseRanges(starts: string[], ends: string[]): { ranges: MinuteRange[];
       error = "La fin d'une plage doit suivre son début.";
       continue;
     }
-    ranges.push({ start, end });
+    if (!count) {
+      ranges.push({ start, end });
+      continue;
+    }
+    const maxSlots = /^\d{1,2}$/.test(count) ? Number(count) : 0;
+    if (maxSlots < 1 || maxSlots > 20) {
+      error = "Nombre de créneaux entre 1 et 20, ou vide pour tous les horaires libres.";
+      continue;
+    }
+    ranges.push({ start, end, maxSlots });
   }
   ranges.sort((a, b) => a.start - b.start);
   for (let i = 1; i < ranges.length; i++) {
@@ -255,7 +272,11 @@ function scheduleValuesFrom(deps: Deps, id: number): ScheduleValues | null {
   if (!s) return null;
   const weekly: ScheduleValues["weekly"] = {};
   for (let d = 1; d <= 7; d++) {
-    weekly[d] = (s.weekly[d] ?? []).map((r) => ({ start: minutesToTime(r.start), end: r.end === 1440 ? "00:00" : minutesToTime(r.end) }));
+    weekly[d] = (s.weekly[d] ?? []).map((r) => ({
+      start: minutesToTime(r.start),
+      end: r.end === 1440 ? "00:00" : minutesToTime(r.end),
+      count: r.maxSlots === undefined ? "" : String(r.maxSlots),
+    }));
   }
   return { name: s.name, timeZone: s.timeZone, weekly };
 }
@@ -461,14 +482,12 @@ export function adminRoutes(app: Hono<Env>): void {
   });
 
   admin.get("/disponibilites/nouveau", (c) => {
-    const nine = [
-      { start: "09:00", end: "12:00" },
-      { start: "14:00", end: "18:00" },
-    ];
+    // Quelques créneaux par demi-journée plutôt qu'une semaine de bureau entière.
+    const two = (start: string, end: string) => [{ start, end, count: "2" }];
     return renderSchedule(c, null, {
       name: "",
       timeZone: adminZone(c.get("deps")),
-      weekly: { 1: nine, 2: nine, 3: nine, 4: nine, 5: nine, 6: [], 7: [] },
+      weekly: { 1: two("13:00", "15:00"), 2: two("09:00", "11:00"), 3: [], 4: two("09:00", "11:00"), 5: [], 6: [], 7: [] },
     }, {});
   });
 
@@ -480,7 +499,7 @@ export function adminRoutes(app: Hono<Env>): void {
     const weekly: Record<number, MinuteRange[]> = {};
     const dayErrors: Record<number, string> = {};
     for (let d = 1; d <= 7; d++) {
-      const parsed = parseRanges(fields(body, `j${d}_debut`), fields(body, `j${d}_fin`));
+      const parsed = parseRanges(fields(body, `j${d}_debut`), fields(body, `j${d}_fin`), fields(body, `j${d}_nb`));
       values.weekly[d] = parsed.raw;
       weekly[d] = parsed.ranges;
       if (parsed.error) dayErrors[d] = parsed.error;
@@ -524,7 +543,7 @@ export function adminRoutes(app: Hono<Env>): void {
     }
     let ranges: MinuteRange[] = [];
     if (mode === "hours") {
-      const parsed = parseRanges(fields(body, "exc_debut"), fields(body, "exc_fin"));
+      const parsed = parseRanges(fields(body, "exc_debut"), fields(body, "exc_fin"), fields(body, "exc_nb"));
       if (parsed.error || parsed.ranges.length === 0) {
         return renderSchedule(c, id, values, {}, { overrideError: parsed.error ?? "Ajoutez au moins une plage.", overrideValues: { date, mode } }, 400);
       }

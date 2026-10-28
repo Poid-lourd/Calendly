@@ -30,6 +30,8 @@ export interface SlotInput {
   blocked?: Interval[];
   // Débuts des réservations actives du type d'événement, pour le plafond quotidien.
   bookedStarts: number[];
+  // Débuts des réservations actives du planning, tous types confondus, pour les plages à nombre de créneaux limité.
+  scheduleBookedStarts?: number[];
   rangeStart: number;
   rangeEnd: number;
   now: number;
@@ -77,6 +79,35 @@ function atMinute(day: DateTime, minute: number): DateTime {
   return day.set({ hour: Math.floor(minute / 60), minute: minute % 60, second: 0, millisecond: 0 });
 }
 
+// Bornes d'une plage pour une journée locale.
+export function rangeBounds(day: DateTime, range: MinuteRange): Interval {
+  return { start: atMinute(day, range.start).toMillis(), end: atMinute(day, range.end).toMillis() };
+}
+
+// Créneaux à proposer dans une plage limitée à max créneaux. Les réservations de la plage occupent déjà leur place ;
+// les autres sont pris parmi les débuts libres, espacés si possible d'au moins la durée de la plage divisée par max.
+export function pickInRange(free: number[], booked: number[], max: number, bounds: Interval): number[] {
+  const gap = (bounds.end - bounds.start) / max;
+  const taken = [...booked];
+  const picked: number[] = [];
+  for (const t of free) {
+    if (taken.length >= max) break;
+    if (taken.every((b) => Math.abs(t - b) >= gap)) {
+      taken.push(t);
+      picked.push(t);
+    }
+  }
+  // Agenda chargé : les débuts libres restants complètent, dans l'ordre.
+  for (const t of free) {
+    if (taken.length >= max) break;
+    if (!picked.includes(t)) {
+      taken.push(t);
+      picked.push(t);
+    }
+  }
+  return picked;
+}
+
 export function rangesForDate(
   weekly: Record<number, MinuteRange[]>,
   overrides: Record<string, MinuteRange[]>,
@@ -98,6 +129,7 @@ export function computeSlots(input: SlotInput): number[] {
   const lastDate = DateTime.fromMillis(input.now, { zone }).startOf("day").plus({ days: rules.maxHorizonDays });
   const busy = mergeIntervals(input.busy);
   const blocked = mergeIntervals(input.blocked ?? []);
+  const scheduleBooked = input.scheduleBookedStarts ?? [];
 
   const perDay = new Map<string, number>();
   for (const s of input.bookedStarts) {
@@ -115,10 +147,20 @@ export function computeSlots(input: SlotInput): number[] {
     const full = rules.dailyLimit !== null && (perDay.get(iso) ?? 0) >= rules.dailyLimit;
     if (!full) {
       for (const range of rangesForDate(input.weekly, input.overrides, day)) {
-        const rangeEnd = atMinute(day, range.end).toMillis();
-        for (let t = atMinute(day, range.start).toMillis(); t + duration <= rangeEnd; t += step) {
-          if (t < input.rangeStart || t >= input.rangeEnd || t < earliest) continue;
+        const bounds = rangeBounds(day, range);
+        const free: number[] = [];
+        for (let t = bounds.start; t + duration <= bounds.end; t += step) {
           if (overlaps(busy, t - before, t + duration + after) || overlaps(blocked, t, t + duration)) continue;
+          free.push(t);
+        }
+        // Une plage limitée se choisit sur toute sa durée, avant les filtres de période et de préavis :
+        // le choix reste le même quelle que soit la période demandée et l'heure de la demande.
+        const offered =
+          range.maxSlots === undefined
+            ? free
+            : pickInRange(free, scheduleBooked.filter((s) => s >= bounds.start && s < bounds.end), range.maxSlots, bounds);
+        for (const t of offered) {
+          if (t < input.rangeStart || t >= input.rangeEnd || t < earliest) continue;
           found.add(t);
         }
       }

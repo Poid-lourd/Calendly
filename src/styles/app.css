@@ -1302,6 +1302,17 @@ td[aria-selected="true"] a.day {
   text-align: center;
 }
 
+.range .input--count {
+  width: 64px;
+}
+
+/* Le nombre et son libellé passent à la ligne ensemble. */
+.range-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
 .range-sep {
   color: var(--text-2);
 }

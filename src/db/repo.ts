@@ -34,6 +34,11 @@ function toAccount(r: Row): GoogleAccount {
   };
 }
 
+function toRange(r: Row): MinuteRange {
+  const maxSlots = nnum(r.max_slots);
+  return maxSlots === null ? { start: num(r.start_minute), end: num(r.end_minute) } : { start: num(r.start_minute), end: num(r.end_minute), maxSlots };
+}
+
 function toCalendar(r: Row): Calendar {
   return {
     id: num(r.id),
@@ -347,16 +352,16 @@ export class Repo {
     if (!r) return null;
     const weekly: Record<number, MinuteRange[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
     for (const rule of this.db
-      .prepare("SELECT weekday, start_minute, end_minute FROM schedule_rules WHERE schedule_id = ? ORDER BY weekday, start_minute")
+      .prepare("SELECT weekday, start_minute, end_minute, max_slots FROM schedule_rules WHERE schedule_id = ? ORDER BY weekday, start_minute")
       .all(id) as Row[]) {
-      weekly[num(rule.weekday)]!.push({ start: num(rule.start_minute), end: num(rule.end_minute) });
+      weekly[num(rule.weekday)]!.push(toRange(rule));
     }
     const overrides: Record<string, MinuteRange[]> = {};
     for (const o of this.db
-      .prepare("SELECT date, start_minute, end_minute FROM schedule_overrides WHERE schedule_id = ? ORDER BY date, start_minute")
+      .prepare("SELECT date, start_minute, end_minute, max_slots FROM schedule_overrides WHERE schedule_id = ? ORDER BY date, start_minute")
       .all(id) as Row[]) {
       const list = (overrides[str(o.date)] ??= []);
-      if (o.start_minute !== null) list.push({ start: num(o.start_minute), end: num(o.end_minute) });
+      if (o.start_minute !== null) list.push(toRange(o));
     }
     return { id: num(r.id), name: str(r.name), timeZone: str(r.time_zone), weekly, overrides };
   }
@@ -378,10 +383,10 @@ export class Repo {
         this.db.prepare("DELETE FROM schedule_rules WHERE schedule_id = ?").run(scheduleId);
       }
       const insert = this.db.prepare(
-        "INSERT INTO schedule_rules (schedule_id, weekday, start_minute, end_minute) VALUES (?, ?, ?, ?)",
+        "INSERT INTO schedule_rules (schedule_id, weekday, start_minute, end_minute, max_slots) VALUES (?, ?, ?, ?, ?)",
       );
       for (const [day, ranges] of Object.entries(input.weekly)) {
-        for (const r of ranges) insert.run(scheduleId, Number(day), r.start, r.end);
+        for (const r of ranges) insert.run(scheduleId, Number(day), r.start, r.end, r.maxSlots ?? null);
       }
       return scheduleId;
     });
@@ -391,10 +396,10 @@ export class Repo {
     this.immediate(() => {
       this.db.prepare("DELETE FROM schedule_overrides WHERE schedule_id = ? AND date = ?").run(scheduleId, date);
       const insert = this.db.prepare(
-        "INSERT INTO schedule_overrides (schedule_id, date, start_minute, end_minute) VALUES (?, ?, ?, ?)",
+        "INSERT INTO schedule_overrides (schedule_id, date, start_minute, end_minute, max_slots) VALUES (?, ?, ?, ?, ?)",
       );
-      if (ranges.length === 0) insert.run(scheduleId, date, null, null);
-      for (const r of ranges) insert.run(scheduleId, date, r.start, r.end);
+      if (ranges.length === 0) insert.run(scheduleId, date, null, null, null);
+      for (const r of ranges) insert.run(scheduleId, date, r.start, r.end, r.maxSlots ?? null);
       this.db.prepare("UPDATE schedules SET updated_at = ? WHERE id = ?").run(this.now(), scheduleId);
     });
   }
@@ -605,6 +610,22 @@ export class Repo {
       )
       .all(...calendarIds, exclude, to, from, ...calendarIds, exclude, to, from) as Row[];
     return rows.map((r) => ({ start: num(r.s), end: num(r.e), before: num(r.bb) * 60_000, after: num(r.ba) * 60_000 }));
+  }
+
+  // Débuts des réservations actives des types d'événements d'un planning, pour le nombre de créneaux par plage.
+  activeStartsForSchedule(scheduleId: number, from: number, to: number, excludeBookingId: number | null): number[] {
+    const rows = this.db
+      .prepare(
+        `SELECT b.start_at AS s FROM bookings b JOIN event_types t ON t.id = b.event_type_id
+           WHERE t.schedule_id = @id AND b.status IN ('pending', 'confirmed') AND b.id != @ex
+             AND b.start_at >= @from AND b.start_at < @to
+         UNION ALL
+         SELECT b.pending_start_at AS s FROM bookings b JOIN event_types t ON t.id = b.event_type_id
+           WHERE t.schedule_id = @id AND b.status = 'confirmed' AND b.id != @ex
+             AND b.pending_start_at IS NOT NULL AND b.pending_start_at >= @from AND b.pending_start_at < @to`,
+      )
+      .all({ id: scheduleId, ex: excludeBookingId ?? -1, from, to }) as Row[];
+    return rows.map((r) => num(r.s));
   }
 
   // Débuts des réservations actives d'un type d'événement, pour le plafond quotidien.

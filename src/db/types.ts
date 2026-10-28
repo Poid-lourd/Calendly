@@ -39,6 +39,8 @@ export interface Calendar {
 export interface MinuteRange {
   start: number;
   end: number;
+  // Nombre de créneaux proposés dans la plage, réservations comprises. Absent : tous les créneaux libres.
+  maxSlots?: number;
 }
 
 export interface Schedule {

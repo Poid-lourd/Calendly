@@ -47,7 +47,11 @@ navigateur ──HTTPS──> Caddy ──HTTP──> app (Node 22, Hono, rendu 
 4. Exclusion si `[début - tampon avant, fin + tampon après]` chevauche une période occupée.
    Périodes occupées = freebusy Google des agendas bloquants + agenda de destination,
    plus les réservations locales non annulées sur ces agendas.
-5. Si un compte nécessaire est déconnecté ou si Google renvoie une erreur, aucun créneau n'est proposé.
+5. Plage avec un nombre de créneaux N : parmi ses candidats libres (étape 4), N au plus sont proposés,
+   réservations actives du planning dans la plage comprises. Choix glouton dans l'ordre, espacement minimal
+   durée de la plage / N, puis complément avec les candidats restants. Le choix porte sur toute la plage,
+   avant les filtres de période et de préavis, pour rester identique entre l'affichage et la réservation.
+6. Si un compte nécessaire est déconnecté ou si Google renvoie une erreur, aucun créneau n'est proposé.
 
 ## Réservation
 

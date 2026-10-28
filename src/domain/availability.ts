@@ -76,8 +76,10 @@ export class Availability {
     const end = Math.min(rangeEnd, horizonEnd);
     if (start >= end) return { ok: true, slots: [] };
 
-    const busyFrom = start - et.bufferBeforeMinutes * MINUTE;
-    const busyTo = end + (et.durationMinutes + et.bufferAfterMinutes) * MINUTE;
+    // Journées entières : une plage à nombre de créneaux limité se choisit sur toute sa durée, même hors de [start, end).
+    const zone = schedule.timeZone;
+    const busyFrom = DateTime.fromMillis(start, { zone }).startOf("day").toMillis() - et.bufferBeforeMinutes * MINUTE;
+    const busyTo = DateTime.fromMillis(end, { zone }).endOf("day").toMillis() + (et.durationMinutes + et.bufferAfterMinutes) * MINUTE;
     let remote: Interval[];
     try {
       remote = await this.remoteBusy(calendars, busyFrom, busyTo, opts.fresh ?? false);
@@ -110,6 +112,7 @@ export class Availability {
     );
     const bookedStarts =
       et.dailyLimit === null ? [] : this.repo.activeStartsForEventType(et.id, start - 2 * DAY, end + 2 * DAY, exclude?.id ?? null);
+    const scheduleBookedStarts = this.repo.activeStartsForSchedule(schedule.id, busyFrom, busyTo, exclude?.id ?? null);
 
     return {
       ok: true,
@@ -129,6 +132,7 @@ export class Availability {
         busy: [...remote, ...local.map((l) => ({ start: l.start, end: l.end }))],
         blocked: local.map((l) => ({ start: l.start - l.before, end: l.end + l.after })),
         bookedStarts,
+        scheduleBookedStarts,
         rangeStart: start,
         rangeEnd: end,
         now,

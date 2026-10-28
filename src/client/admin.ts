@@ -16,17 +16,32 @@ function rangeRow(prefix: string, label: string): HTMLElement {
     el.setAttribute("aria-label", `${label}, ${aria}`);
     return el;
   };
-  const sep = document.createElement("span");
-  sep.className = "range-sep";
-  sep.setAttribute("aria-hidden", "true");
-  sep.textContent = "à";
+  const text = (content: string) => {
+    const el = document.createElement("span");
+    el.className = "range-sep";
+    el.setAttribute("aria-hidden", "true");
+    el.textContent = content;
+    return el;
+  };
+  const count = document.createElement("input");
+  count.className = "input input--count";
+  count.type = "text";
+  count.inputMode = "numeric";
+  count.maxLength = 2;
+  count.placeholder = "tous";
+  count.pattern = "[0-9]{1,2}";
+  count.name = `${prefix}_nb`;
+  count.setAttribute("aria-label", `${label}, nombre de créneaux, vide pour tous`);
   const remove = document.createElement("button");
   remove.type = "button";
   remove.className = "link-btn";
   remove.dataset.removeRange = "";
   remove.setAttribute("aria-label", `Retirer cette plage, ${label}`);
   remove.textContent = "Retirer";
-  row.append(input("debut", "début"), sep, input("fin", "fin"), remove);
+  const group = document.createElement("span");
+  group.className = "range-count";
+  group.append(count, text("créneaux"));
+  row.append(input("debut", "début"), text("à"), input("fin", "fin"), group, remove);
   return row;
 }
 

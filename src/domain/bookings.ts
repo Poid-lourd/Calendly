@@ -6,7 +6,7 @@ import { log } from "../lib/log.js";
 import { AccountUnavailableError, type Accounts } from "../providers/accounts.js";
 import type { Availability } from "./availability.js";
 import { calendarsFor } from "./availability.js";
-import { conflicts } from "./slots.js";
+import { conflicts, rangeBounds, rangesForDate } from "./slots.js";
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -77,18 +77,26 @@ export class Bookings {
     return { end: start + et.durationMinutes * MINUTE };
   }
 
-  // Revérifie, dans la transaction, qu'aucune réservation locale ne chevauche le créneau et que le plafond n'est pas atteint.
+  // Revérifie, dans la transaction, qu'aucune réservation locale ne chevauche le créneau
+  // et que ni le plafond quotidien ni le nombre de créneaux de la plage ne sont atteints.
   private assertNoLocalConflict(et: EventType, calendarIds: number[], start: number, excludeId: number | null): void {
     const { end } = this.conflictWindow(et, start);
     const candidate = { start, end, before: et.bufferBeforeMinutes * MINUTE, after: et.bufferAfterMinutes * MINUTE };
     const nearby = this.repo.localBusy(calendarIds, start - DAY, end + DAY, excludeId);
     if (nearby.some((existing) => conflicts(candidate, existing))) throw new SlotUnavailableError();
+    const schedule = this.repo.getSchedule(et.scheduleId);
+    if (!schedule) throw new BookingStateError("Planning introuvable.");
+    const day = DateTime.fromMillis(start, { zone: schedule.timeZone }).startOf("day");
     if (et.dailyLimit !== null) {
-      const schedule = this.repo.getSchedule(et.scheduleId);
-      if (!schedule) throw new BookingStateError("Planning introuvable.");
-      const day = DateTime.fromMillis(start, { zone: schedule.timeZone }).startOf("day");
       const count = this.repo.activeStartsForEventType(et.id, day.toMillis(), day.plus({ days: 1 }).toMillis(), excludeId).length;
       if (count >= et.dailyLimit) throw new SlotUnavailableError();
+    }
+    for (const range of rangesForDate(schedule.weekly, schedule.overrides, day)) {
+      if (range.maxSlots === undefined) continue;
+      const bounds = rangeBounds(day, range);
+      if (start < bounds.start || start >= bounds.end) continue;
+      const count = this.repo.activeStartsForSchedule(schedule.id, bounds.start, bounds.end, excludeId).length;
+      if (count >= range.maxSlots) throw new SlotUnavailableError();
     }
   }
 

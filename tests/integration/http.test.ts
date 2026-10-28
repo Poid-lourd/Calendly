@@ -255,6 +255,35 @@ describe("administration", () => {
   });
 });
 
+describe("plannings", () => {
+  it("enregistre le nombre de créneaux de chaque plage et refuse un nombre invalide", async () => {
+    const { app, ctx } = await setup();
+    const sid = "p".repeat(43);
+    const { sha256 } = await import("../../src/lib/crypto.js");
+    ctx.repo.createSession(sha256(sid), "admin@exemple.test", 60_000);
+    const { cookie, token } = await csrf(app);
+    const cookies = `${cookie}; sid=${sid}`;
+
+    const blank = await (await app.request(`${BASE}/admin/disponibilites/nouveau`, { headers: { cookie: cookies } })).text();
+    expect(blank).toContain('name="j1_debut" value="13:00"');
+    expect(blank).toContain('name="j1_nb" value="2"');
+
+    const fields = { _csrf: token, name: "Petites tranches", timeZone: "Europe/Paris", j1_debut: "13:00", j1_fin: "15:00", j1_nb: "2", j2_debut: "09:00", j2_fin: "12:00", j2_nb: "" };
+    const invalid = await post(app, "/admin/disponibilites", { ...fields, j1_nb: "0" }, cookies);
+    expect(invalid.status).toBe(400);
+    expect(await invalid.text()).toContain("Nombre de créneaux entre 1 et 20");
+
+    const saved = await post(app, "/admin/disponibilites", fields, cookies);
+    expect(saved.status).toBe(303);
+    const id = Number(saved.headers.get("location")!.match(/disponibilites\/(\d+)/)![1]);
+    const schedule = ctx.repo.getSchedule(id)!;
+    expect(schedule.weekly[1]).toEqual([{ start: 13 * 60, end: 15 * 60, maxSlots: 2 }]);
+    expect(schedule.weekly[2]).toEqual([{ start: 9 * 60, end: 12 * 60 }]);
+    const list = await (await app.request(`${BASE}/admin/disponibilites`, { headers: { cookie: cookies } })).text();
+    expect(list).toContain("lun. 13:00–15:00 (2 créneaux)");
+  });
+});
+
 describe("signature de mail", () => {
   it("image PNG dynamique, lisible depuis une autre origine et jamais en cache", async () => {
     const { app } = await setup();

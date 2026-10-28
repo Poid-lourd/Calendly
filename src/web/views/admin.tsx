@@ -619,12 +619,17 @@ export function EventTypeFormPage(props: {
 
 // ===== Plannings =====
 
+function rangeLabel(r: MinuteRange): string {
+  const hours = `${minutesToTime(r.start)}–${minutesToTime(r.end)}`;
+  return r.maxSlots === undefined ? hours : `${hours} (${r.maxSlots} créneau${r.maxSlots > 1 ? "x" : ""})`;
+}
+
 function summarizeWeek(weekly: Record<number, MinuteRange[]>): string[] {
   const lines: string[] = [];
   for (let d = 1; d <= 7; d++) {
     const ranges = weekly[d] ?? [];
     if (ranges.length === 0) continue;
-    lines.push(`${WEEKDAYS[d - 1]!.slice(0, 3)}. ${ranges.map((r) => `${minutesToTime(r.start)}–${minutesToTime(r.end)}`).join(", ")}`);
+    lines.push(`${WEEKDAYS[d - 1]!.slice(0, 3)}. ${ranges.map(rangeLabel).join(", ")}`);
   }
   return lines;
 }
@@ -684,11 +689,11 @@ export function SchedulesPage(props: { meta: AdminMeta; items: { schedule: Sched
 export interface ScheduleValues {
   name: string;
   timeZone: string;
-  // Plages saisies, par jour ISO (1 à 7), au format HH:MM.
-  weekly: Record<number, { start: string; end: string }[]>;
+  // Plages saisies, par jour ISO (1 à 7), au format HH:MM, avec le nombre de créneaux (vide : tous).
+  weekly: Record<number, { start: string; end: string; count: string }[]>;
 }
 
-function RangeRow(props: { prefix: string; start: string; end: string; label: string }) {
+function RangeRow(props: { prefix: string; start: string; end: string; count: string; label: string }) {
   return (
     <div class="range" data-range>
       <input class="input" type="text" inputmode="numeric" maxlength={5} placeholder="09:00" pattern="[0-2][0-9]:[0-5][0-9]" name={`${props.prefix}_debut`} value={props.start} aria-label={`${props.label}, début`} />
@@ -696,6 +701,12 @@ function RangeRow(props: { prefix: string; start: string; end: string; label: st
         à
       </span>
       <input class="input" type="text" inputmode="numeric" maxlength={5} placeholder="18:00" pattern="[0-2][0-9]:[0-5][0-9]" name={`${props.prefix}_fin`} value={props.end} aria-label={`${props.label}, fin`} />
+      <span class="range-count">
+        <input class="input input--count" type="text" inputmode="numeric" maxlength={2} placeholder="tous" pattern="[0-9]{1,2}" name={`${props.prefix}_nb`} value={props.count} aria-label={`${props.label}, nombre de créneaux, vide pour tous`} />
+        <span class="range-sep" aria-hidden="true">
+          créneaux
+        </span>
+      </span>
       <button class="link-btn" type="button" data-remove-range aria-label={`Retirer cette plage, ${props.label}`}>
         Retirer
       </button>
@@ -703,7 +714,7 @@ function RangeRow(props: { prefix: string; start: string; end: string; label: st
   );
 }
 
-function RangesEditor(props: { prefix: string; ranges: { start: string; end: string }[]; label: string; emptyText: string }) {
+function RangesEditor(props: { prefix: string; ranges: { start: string; end: string; count: string }[]; label: string; emptyText: string }) {
   return (
     <div class="ranges" data-ranges data-prefix={props.prefix} data-label={props.label} data-empty-text={props.emptyText}>
       {props.ranges.length === 0 ? (
@@ -712,7 +723,7 @@ function RangesEditor(props: { prefix: string; ranges: { start: string; end: str
         </p>
       ) : null}
       {props.ranges.map((r) => (
-        <RangeRow prefix={props.prefix} start={r.start} end={r.end} label={props.label} />
+        <RangeRow prefix={props.prefix} start={r.start} end={r.end} count={r.count} label={props.label} />
       ))}
       <div>
         <button class="link-btn" type="button" data-add-range>
@@ -769,6 +780,10 @@ export function ScheduleFormPage(props: {
               <h2>Semaine type</h2>
               <p>Plusieurs plages possibles par jour. Une fin à 00:00 signifie minuit.</p>
             </div>
+            <p class="muted">
+              Avec un nombre de créneaux, la plage n'en propose que ce nombre, pris parmi les horaires libres de vos agendas et espacés au mieux. Chaque
+              réservation dans la plage en consomme un. Sans nombre, tous les horaires libres de la plage sont proposés.
+            </p>
             <div class="week">
               {WEEKDAYS.map((name, i) => {
                 const day = i + 1;
@@ -818,7 +833,7 @@ export function ScheduleFormPage(props: {
                   {props.overrides.map((o) => (
                     <tr>
                       <td>{capitalize(dt(Date.parse(`${o.date}T12:00:00Z`), "UTC").toFormat("cccc d LLLL yyyy"))}</td>
-                      <td>{o.ranges.length === 0 ? "Indisponible" : o.ranges.map((r) => `${minutesToTime(r.start)}–${minutesToTime(r.end)}`).join(", ")}</td>
+                      <td>{o.ranges.length === 0 ? "Indisponible" : o.ranges.map(rangeLabel).join(", ")}</td>
                       <td>
                         <form method="post" action={`/admin/disponibilites/${props.id}/exceptions/${o.date}/supprimer`}>
                           <Csrf token={props.meta.csrf} />
@@ -852,7 +867,7 @@ export function ScheduleFormPage(props: {
                   </label>
                 </div>
               </fieldset>
-              <RangesEditor prefix="exc" ranges={[{ start: "09:00", end: "12:00" }]} label="Exception" emptyText="Aucune plage" />
+              <RangesEditor prefix="exc" ranges={[{ start: "09:00", end: "12:00", count: "" }]} label="Exception" emptyText="Aucune plage" />
               <div>
                 <button class="btn" type="submit">
                   Ajouter l'exception

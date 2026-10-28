@@ -178,6 +178,14 @@ ALTER TABLE settings ADD COLUMN signature_event_type_id INTEGER REFERENCES event
 ALTER TABLE settings ADD COLUMN signature_max_slots INTEGER NOT NULL DEFAULT 3 CHECK (signature_max_slots BETWEEN 1 AND 4);
 `,
   },
+  {
+    id: 3,
+    name: "nombre de créneaux par plage",
+    sql: `
+ALTER TABLE schedule_rules ADD COLUMN max_slots INTEGER CHECK (max_slots BETWEEN 1 AND 20);
+ALTER TABLE schedule_overrides ADD COLUMN max_slots INTEGER CHECK (max_slots BETWEEN 1 AND 20);
+`,
+  },
 ];
 
 export function migrate(db: Database): void {

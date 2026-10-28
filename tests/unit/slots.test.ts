@@ -365,3 +365,51 @@ describe("tampons des réservations existantes", () => {
     expect(conflicts({ start: 30 * m, end: 60 * m, before: 0, after: 0 }, existing)).toBe(false);
   });
 });
+
+describe("nombre de créneaux par plage", () => {
+  const limited = (maxSlots: number) => ({ 1: [{ start: H(13), end: H(15), maxSlots }] });
+  const at = (time: string) => local(`${MONDAY}T${time}`, PARIS);
+
+  it("propose le nombre demandé, espacé dans la plage", () => {
+    expect(parisTimes(run({ weekly: limited(2) }))).toEqual(["13:00", "14:00"]);
+    expect(parisTimes(run({ weekly: limited(1) }))).toEqual(["13:00"]);
+  });
+
+  it("remplace un horaire occupé par un horaire libre de la même plage", () => {
+    const slots = run({ weekly: limited(2), busy: [{ start: at("13:00"), end: at("13:30") }] });
+    expect(parisTimes(slots)).toEqual(["13:30", "14:30"]);
+  });
+
+  it("complète avec les horaires restants quand l'agenda est chargé", () => {
+    const busy = [
+      { start: at("13:00"), end: at("13:30") },
+      { start: at("14:30"), end: at("15:00") },
+    ];
+    expect(parisTimes(run({ weekly: limited(2), busy }))).toEqual(["13:30", "14:00"]);
+  });
+
+  it("une réservation de la plage consomme un créneau sans être remplacée", () => {
+    const booked = { busy: [{ start: at("13:00"), end: at("13:30") }], scheduleBookedStarts: [at("13:00")] };
+    expect(parisTimes(run({ weekly: limited(2), ...booked }))).toEqual(["14:00"]);
+    const full = { busy: [...booked.busy, { start: at("14:00"), end: at("14:30") }], scheduleBookedStarts: [at("13:00"), at("14:00")] };
+    expect(run({ weekly: limited(2), ...full })).toEqual([]);
+  });
+
+  it("le choix ne dépend ni de la période demandée ni de l'heure de la demande", () => {
+    // Vérification d'une réservation : période d'une milliseconde.
+    expect(parisTimes(run({ weekly: limited(2), rangeStart: at("14:00"), rangeEnd: at("14:00") + 1 }))).toEqual(["14:00"]);
+    expect(run({ weekly: limited(2), rangeStart: at("13:30"), rangeEnd: at("13:30") + 1 })).toEqual([]);
+    // À 13:10, 13:00 est passé : il n'est pas remplacé par 13:30.
+    expect(parisTimes(run({ weekly: limited(2), now: at("13:10") }))).toEqual(["14:00"]);
+  });
+
+  it("s'applique aux exceptions", () => {
+    const slots = run({ overrides: { [MONDAY]: [{ start: H(9), end: H(12), maxSlots: 3 }] } });
+    expect(parisTimes(slots)).toEqual(["09:00", "10:00", "11:00"]);
+  });
+
+  it("laisse les plages sans nombre proposer tous les horaires libres", () => {
+    const slots = run({ weekly: { 1: [{ start: H(9), end: H(10) }, { start: H(13), end: H(15), maxSlots: 1 }] } });
+    expect(parisTimes(slots)).toEqual(["09:00", "09:30", "13:00"]);
+  });
+});

@@ -86,6 +86,27 @@ describe("réservation", () => {
   });
 });
 
+describe("nombre de créneaux par plage", () => {
+  it("propose les créneaux demandés et chaque réservation en consomme un", async () => {
+    const ctx = await createContext();
+    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const schedule = ctx.repo.getSchedule(et.scheduleId)!;
+    ctx.repo.saveSchedule(schedule.id, { name: schedule.name, timeZone: PARIS, weekly: { 2: [{ start: 13 * 60, end: 15 * 60, maxSlots: 2 }] } });
+    ctx.availability.invalidate();
+    const tuesday = (time: string) => DateTime.fromISO(`2027-01-05T${time}`, { zone: PARIS }).toMillis();
+
+    // Déjeuner simulé de 12:30 à 13:30 : 13:00 est occupé.
+    expect(await firstSlots(ctx, et.slug, 7)).toEqual([tuesday("13:30"), tuesday("14:30")]);
+    // Libre, mais au-delà des deux créneaux de la plage.
+    await expect(ctx.bookings.create({ eventType: et, start: tuesday("14:00"), ...invitee })).rejects.toBeInstanceOf(SlotUnavailableError);
+
+    await ctx.bookings.create({ eventType: et, start: tuesday("13:30"), ...invitee });
+    expect(await firstSlots(ctx, et.slug, 7)).toEqual([tuesday("14:30")]);
+    await ctx.bookings.create({ eventType: et, start: tuesday("14:30"), ...invitee, email: "b@exemple.fr" });
+    expect(await firstSlots(ctx, et.slug, 7)).toEqual([]);
+  });
+});
+
 describe("annulation", () => {
   it("annule l'événement Google avec notification et libère le créneau", async () => {
     const ctx = await createContext();
