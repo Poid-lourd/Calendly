@@ -1,10 +1,106 @@
 import type { Database } from "better-sqlite3";
 import { log } from "../lib/log.js";
+import { RESERVED_USER_SLUGS, slugFromEmail } from "../lib/slug.js";
+
+export interface MigrationContext {
+  // Adresse à qui rattacher les données d'une installation antérieure aux espaces par personne.
+  owner: string | null;
+}
 
 interface Migration {
   id: number;
   name: string;
-  sql: string;
+  sql?: string;
+  run?: (db: Database, ctx: MigrationContext) => void;
+  // Reconstruction de table : contraintes de clés étrangères suspendues, puis vérifiées avant validation.
+  foreignKeysOff?: boolean;
+}
+
+// Espaces par personne : les réglages deviennent ceux de chaque personne, comptes Google, plannings et types
+// d'événements lui sont rattachés. La table event_types est reconstruite pour une adresse unique par personne.
+function multiUser(db: Database, ctx: MigrationContext): void {
+  const now = Date.now();
+  db.exec(`
+CREATE TABLE users (
+  id INTEGER PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  slug TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL DEFAULT '',
+  accent_color TEXT NOT NULL DEFAULT '#0d6b52',
+  avatar BLOB,
+  avatar_type TEXT,
+  avatar_updated_at INTEGER,
+  signature_event_type_id INTEGER REFERENCES event_types(id) ON DELETE SET NULL,
+  signature_max_slots INTEGER NOT NULL DEFAULT 3 CHECK (signature_max_slots BETWEEN 1 AND 4),
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+ALTER TABLE google_accounts ADD COLUMN user_id INTEGER REFERENCES users(id);
+ALTER TABLE schedules ADD COLUMN user_id INTEGER REFERENCES users(id);
+`);
+
+  const legacy = db
+    .prepare(
+      `SELECT EXISTS (SELECT 1 FROM google_accounts) OR EXISTS (SELECT 1 FROM schedules) OR EXISTS (SELECT 1 FROM event_types)
+         OR EXISTS (SELECT 1 FROM settings WHERE display_name != '' OR avatar IS NOT NULL) AS v`,
+    )
+    .get() as { v: number };
+  let ownerId: number | null = null;
+  if (legacy.v) {
+    const email = ctx.owner?.trim().toLowerCase();
+    if (!email) throw new Error("Données existantes sans propriétaire : renseignez au moins une adresse dans ADMIN_EMAILS.");
+    const base = slugFromEmail(email);
+    const slug = RESERVED_USER_SLUGS.has(base) ? `${base}-1` : base;
+    ownerId = Number(
+      db
+        .prepare(
+          `INSERT INTO users (email, slug, display_name, accent_color, avatar, avatar_type, avatar_updated_at,
+             signature_event_type_id, signature_max_slots, created_at, updated_at)
+           SELECT ?, ?, display_name, accent_color, avatar, avatar_type, avatar_updated_at, signature_event_type_id,
+             signature_max_slots, ?, ? FROM settings WHERE id = 1`,
+        )
+        .run(email, slug, now, now).lastInsertRowid,
+    );
+    db.prepare("UPDATE google_accounts SET user_id = ?").run(ownerId);
+    db.prepare("UPDATE schedules SET user_id = ?").run(ownerId);
+    log.info("données existantes rattachées", { email, slug });
+  }
+
+  db.exec(`
+CREATE TABLE event_types_new (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  slug TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  duration_minutes INTEGER NOT NULL CHECK (duration_minutes > 0),
+  location_type TEXT NOT NULL CHECK (location_type IN ('meet', 'phone', 'address', 'text')),
+  location_value TEXT NOT NULL DEFAULT '',
+  schedule_id INTEGER NOT NULL REFERENCES schedules(id) ON DELETE RESTRICT,
+  destination_calendar_id INTEGER NOT NULL REFERENCES calendars(id) ON DELETE RESTRICT,
+  slot_interval_minutes INTEGER,
+  buffer_before_minutes INTEGER NOT NULL DEFAULT 0,
+  buffer_after_minutes INTEGER NOT NULL DEFAULT 0,
+  min_notice_minutes INTEGER NOT NULL DEFAULT 0,
+  max_horizon_days INTEGER NOT NULL DEFAULT 60,
+  daily_limit INTEGER,
+  visibility TEXT NOT NULL CHECK (visibility IN ('public', 'unlisted')),
+  active INTEGER NOT NULL DEFAULT 1,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  UNIQUE (user_id, slug)
+);
+`);
+  const columns = `id, slug, title, description, duration_minutes, location_type, location_value, schedule_id, destination_calendar_id,
+    slot_interval_minutes, buffer_before_minutes, buffer_after_minutes, min_notice_minutes, max_horizon_days, daily_limit,
+    visibility, active, position, created_at, updated_at`;
+  db.prepare(`INSERT INTO event_types_new (user_id, ${columns}) SELECT ?, ${columns} FROM event_types`).run(ownerId);
+  db.exec(`
+DROP TABLE event_types;
+ALTER TABLE event_types_new RENAME TO event_types;
+DROP TABLE settings;
+`);
 }
 
 // Les migrations sont appliquées dans l'ordre au démarrage. Ne jamais modifier une migration publiée.
@@ -186,9 +282,15 @@ ALTER TABLE schedule_rules ADD COLUMN max_slots INTEGER CHECK (max_slots BETWEEN
 ALTER TABLE schedule_overrides ADD COLUMN max_slots INTEGER CHECK (max_slots BETWEEN 1 AND 20);
 `,
   },
+  {
+    id: 4,
+    name: "espaces par personne",
+    run: multiUser,
+    foreignKeysOff: true,
+  },
 ];
 
-export function migrate(db: Database): void {
+export function migrate(db: Database, ctx: MigrationContext = { owner: null }): void {
   db.exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -202,10 +304,21 @@ export function migrate(db: Database): void {
   );
   for (const m of migrations) {
     if (applied.has(m.id)) continue;
-    db.transaction(() => {
-      db.exec(m.sql);
-      db.prepare("INSERT INTO schema_migrations (id, name, applied_at) VALUES (?, ?, ?)").run(m.id, m.name, Date.now());
-    }).immediate();
+    // PRAGMA foreign_keys est sans effet dans une transaction : il se règle avant.
+    if (m.foreignKeysOff) db.pragma("foreign_keys = OFF");
+    try {
+      db.transaction(() => {
+        if (m.sql) db.exec(m.sql);
+        m.run?.(db, ctx);
+        if (m.foreignKeysOff) {
+          const problems = db.pragma("foreign_key_check") as unknown[];
+          if (problems.length > 0) throw new Error(`Migration ${m.id} : ${problems.length} référence(s) invalide(s)`);
+        }
+        db.prepare("INSERT INTO schema_migrations (id, name, applied_at) VALUES (?, ?, ?)").run(m.id, m.name, Date.now());
+      }).immediate();
+    } finally {
+      if (m.foreignKeysOff) db.pragma("foreign_keys = ON");
+    }
     log.info("migration appliquée", { id: m.id, name: m.name });
   }
 }

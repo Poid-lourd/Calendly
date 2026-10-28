@@ -1,8 +1,10 @@
 import type { Hono, MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { canSignIn } from "../../config.js";
+import type { User } from "../../db/types.js";
 import { pkcePair, randomToken, safeEqual, sha256 } from "../../lib/crypto.js";
 import { log } from "../../lib/log.js";
-import { MissingScopesError } from "../../providers/accounts.js";
+import { AccountTakenError, MissingScopesError } from "../../providers/accounts.js";
 import type { OAuthPurpose } from "../../providers/types.js";
 import { type Ctx, type Env, field } from "../context.js";
 import { clientIp, cookieName } from "../middleware.js";
@@ -16,14 +18,15 @@ export function redirectUri(c: Ctx): string {
   return new URL("/auth/google/callback", c.get("deps").config.baseUrl).toString();
 }
 
-// Charge la session admin si présente.
+// Charge la session admin si présente. Une adresse retirée de la configuration perd l'accès à son espace.
 export const loadSession: MiddlewareHandler<Env> = async (c, next) => {
   const deps = c.get("deps");
   const sid = getCookie(c, cookieName(deps.config, "sid"));
-  let admin: { email: string } | null = null;
+  let admin: User | null = null;
   if (sid) {
     const session = deps.repo.getSession(sha256(sid));
-    if (session && deps.config.adminEmails.includes(session.email)) admin = session;
+    const user = session ? deps.repo.getUserByEmail(session.email) : null;
+    if (user && canSignIn(deps.config, user.email)) admin = user;
   }
   c.set("admin", admin);
   await next();
@@ -55,13 +58,13 @@ export function authRoutes(app: Hono<Env>): void {
     const deps = c.get("deps");
     const code = c.req.query("erreur");
     const errors: Record<string, string> = {
-      "non-autorise": "Cette adresse n'est pas autorisée à administrer ce site.",
+      "non-autorise": "Cette adresse n'est pas autorisée sur ce site.",
       refus: "La connexion a été annulée.",
       echec: "La connexion a échoué. Réessayez.",
       expire: "La demande de connexion a expiré. Réessayez.",
     };
     return c.html(
-      <LoginPage meta={{ ...meta(c, "Connexion"), robots: "noindex" }} error={code ? errors[code] : undefined} mock={deps.provider.kind === "mock"} />,
+      <LoginPage meta={{ ...meta(c, "Connexion", null), robots: "noindex" }} error={code ? errors[code] : undefined} mock={deps.provider.kind === "mock"} />,
     );
   });
 
@@ -98,11 +101,13 @@ export function authRoutes(app: Hono<Env>): void {
     }
 
     if (stored.purpose === "login") {
-      const email = tokens.identity.email;
-      if (!tokens.identity.emailVerified || !deps.config.adminEmails.includes(email)) {
+      const email = tokens.identity.email.toLowerCase();
+      if (!tokens.identity.emailVerified || !canSignIn(deps.config, email)) {
         log.warn("connexion admin refusée", { email });
         return c.redirect("/admin/connexion?erreur=non-autorise", 302);
       }
+      // Première connexion : l'espace de la personne est créé.
+      deps.repo.ensureUser(email);
       const sid = randomToken();
       deps.repo.createSession(sha256(sid), email, SESSION_TTL);
       setCookie(c, cookieName(deps.config, "sid"), sid, {
@@ -116,13 +121,15 @@ export function authRoutes(app: Hono<Env>): void {
       return c.redirect("/admin", 302);
     }
 
-    if (!c.get("admin")) return c.redirect("/admin/connexion", 302);
+    const admin = c.get("admin");
+    if (!admin) return c.redirect("/admin/connexion", 302);
     try {
-      const account = await deps.accounts.connect(tokens);
+      const account = await deps.accounts.connect(admin.id, tokens);
       log.info("compte Google connecté", { email: account.email });
       return c.redirect(`/admin/agendas?ok=${account.status === "connected" ? "connecte" : "connecte-erreur"}`, 302);
     } catch (err) {
       if (err instanceof MissingScopesError) return c.redirect("/admin/agendas?erreur=autorisations", 302);
+      if (err instanceof AccountTakenError) return c.redirect("/admin/agendas?erreur=deja-connecte", 302);
       log.error("connexion du compte impossible", { err });
       return c.redirect("/admin/agendas?erreur=echec", 302);
     }
@@ -144,7 +151,7 @@ export function authRoutes(app: Hono<Env>): void {
     const purpose = c.req.query("purpose") === "connect" ? "connect" : "login";
     return c.html(
       <MockConsentPage
-        meta={{ ...meta(c, "Connexion simulée"), robots: "noindex" }}
+        meta={{ ...meta(c, "Connexion simulée", null), robots: "noindex" }}
         purpose={purpose}
         state={c.req.query("state") ?? ""}
         challenge={c.req.query("code_challenge") ?? ""}
@@ -168,7 +175,7 @@ export function authRoutes(app: Hono<Env>): void {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
         return c.html(
           <MockConsentPage
-            meta={{ ...meta(c, "Connexion simulée"), robots: "noindex" }}
+            meta={{ ...meta(c, "Connexion simulée", null), robots: "noindex" }}
             purpose={purpose}
             state={state}
             challenge={field(body, "code_challenge")}

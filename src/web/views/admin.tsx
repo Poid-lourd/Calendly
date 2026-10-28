@@ -1,7 +1,7 @@
 import type { Child } from "hono/jsx";
 import type { Booking, Calendar, EventType, GoogleAccount, LocationType, MinuteRange, Schedule } from "../../db/types.js";
 import { duration, longDate, minutesToTime, shortDate, timeRange, timeZones, WEEKDAYS, zoneLabel, dt } from "../format.js";
-import { Document, type PageMeta } from "./layout.js";
+import { Document, type HostMeta, avatarUrl, eventPath, hostPath } from "./layout.js";
 import { locationLabel } from "./public.js";
 import { Csrf, describedBy, Empty, Field, Notice } from "./ui.js";
 
@@ -16,7 +16,8 @@ const NAV: [Section, string, string][] = [
   ["reglages", "Réglages", "/admin/reglages"],
 ];
 
-export interface AdminMeta extends PageMeta {
+// La personne connectée est l'hôte des pages de l'admin : son nom, sa couleur, son espace.
+export interface AdminMeta extends HostMeta {
   email: string;
   section: Section;
   disconnected: GoogleAccount[];
@@ -29,10 +30,11 @@ export function AdminPage(props: AdminMeta & { children: Child }) {
       <header class="admin-bar">
         <div class="admin-bar__inner">
           <a class="brand" href="/admin">
-            {props.settings.displayName || "Rendez-vous"}
+            {props.host.displayName || "Rendez-vous"}
           </a>
           <div class="admin-user">
             <span class="email">{props.email}</span>
+            <a href={hostPath(props.host)}>Ma page</a>
             <form class="inline-form" method="post" action="/admin/deconnexion">
               <Csrf token={props.csrf} />
               <button class="link-btn" type="submit">
@@ -304,7 +306,7 @@ export function EventTypesPage(props: { meta: AdminMeta; items: (EventType & { s
               <tr class={et.active ? undefined : "is-cancelled"}>
                 <td>
                   <a href={`/admin/types/${et.id}`}>{et.title}</a>
-                  <span class="sub">/{et.slug}</span>
+                  <span class="sub">{eventPath(props.meta.host, et)}</span>
                 </td>
                 <td>{duration(et.durationMinutes)}</td>
                 <td>{et.scheduleName}</td>
@@ -312,7 +314,7 @@ export function EventTypesPage(props: { meta: AdminMeta; items: (EventType & { s
                   {!et.active ? "Inactif" : et.visibility === "public" ? "Public" : "Non listé"}
                   {et.active ? (
                     <span class="sub">
-                      <a href={`/${et.slug}`}>Ouvrir la page</a>
+                      <a href={eventPath(props.meta.host, et)}>Ouvrir la page</a>
                     </span>
                   ) : null}
                 </td>
@@ -406,7 +408,7 @@ export function EventTypeFormPage(props: {
 }) {
   const { values: v, errors: e } = props;
   const action = props.id === null ? "/admin/types" : `/admin/types/${props.id}`;
-  const prefix = `${props.baseUrl.replace(/\/$/, "").replace(/^https?:\/\//, "")}/`;
+  const prefix = `${props.baseUrl.replace(/\/$/, "").replace(/^https?:\/\//, "")}${hostPath(props.meta.host)}/`;
   const hasErrors = Object.keys(e).length > 0;
   return (
     <AdminPage {...props.meta}>
@@ -1007,15 +1009,17 @@ export function CalendarsPage(props: {
 export interface SettingsValues {
   displayName: string;
   accentColor: string;
+  slug: string;
 }
 
-export function SettingsPage(props: { meta: AdminMeta; values: SettingsValues; errors: Errors<SettingsValues> & { avatar?: string } }) {
+export function SettingsPage(props: { meta: AdminMeta; values: SettingsValues; errors: Errors<SettingsValues> & { avatar?: string }; baseUrl: string }) {
   const { values: v, errors: e } = props;
   const hasErrors = Object.keys(e).length > 0;
-  const avatar = props.meta.settings.hasAvatar ? `/media/avatar?v=${props.meta.settings.avatarUpdatedAt ?? 0}` : null;
+  const avatar = avatarUrl(props.meta.host);
+  const prefix = `${props.baseUrl.replace(/\/$/, "").replace(/^https?:\/\//, "")}/`;
   return (
     <AdminPage {...props.meta}>
-      <PageHead title="Réglages" text="Apparence des pages publiques." />
+      <PageHead title="Réglages" text="Adresse et apparence de votre page publique." />
       <form class="stack admin-form" method="post" action="/admin/reglages" enctype="multipart/form-data" novalidate>
         {hasErrors ? <Notice kind="error" title="Enregistrement impossible">Corrigez les champs signalés.</Notice> : null}
         <Csrf token={props.meta.csrf} />
@@ -1023,6 +1027,14 @@ export function SettingsPage(props: { meta: AdminMeta; values: SettingsValues; e
           <div class="form-grid">
             <Field id="displayName" label="Nom affiché" error={e.displayName} hint="Votre nom ou celui de votre activité.">
               <input class="input" id="displayName" name="displayName" value={v.displayName} maxlength={80} aria-invalid={e.displayName ? "true" : undefined} aria-describedby={describedBy("displayName", true, e.displayName)} />
+            </Field>
+            <Field id="slug" label="Adresse de votre page" error={e.slug} hint="Lettres minuscules, chiffres et tirets. La changer casse les liens déjà envoyés.">
+              <div class="slug-row">
+                <span class="slug-prefix" aria-hidden="true">
+                  {prefix}
+                </span>
+                <input class="input" id="slug" name="slug" value={v.slug} required maxlength={40} pattern="[a-z0-9]+(-[a-z0-9]+)*" aria-invalid={e.slug ? "true" : undefined} aria-describedby={describedBy("slug", true, e.slug)} />
+              </div>
             </Field>
             <Field id="avatar" label="Photo ou logo" optional error={e.avatar} hint="PNG, JPEG ou WebP, 1 Mo au maximum. Affichée en carré.">
               <div class="avatar-row">

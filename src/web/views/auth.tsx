@@ -2,7 +2,7 @@ import { type PageMeta, PublicPage } from "./layout.js";
 import { Csrf, Field, Notice } from "./ui.js";
 
 export function LoginPage(props: { meta: PageMeta; error?: string | undefined; mock: boolean }) {
-  const name = props.meta.settings.displayName;
+  const name = props.meta.host?.displayName;
   return (
     <PublicPage {...props.meta}>
       <div class="narrow">
@@ -11,7 +11,7 @@ export function LoginPage(props: { meta: PageMeta; error?: string | undefined; m
             {name ? <p class="muted">{name}</p> : null}
             <h1>Administration</h1>
           </div>
-          <p class="muted">Accès réservé aux adresses autorisées.</p>
+          <p class="muted">Chaque personne autorisée gère sa propre page de rendez-vous.</p>
           {props.error ? <Notice kind="error" title="Connexion impossible">{props.error}</Notice> : null}
           <a class="btn btn--primary btn--block" href="/auth/google/connexion">
             Se connecter avec Google

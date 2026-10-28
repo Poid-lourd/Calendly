@@ -3,7 +3,7 @@ import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { selectSignatureSlots } from "../domain/signature.js";
 import { log } from "../lib/log.js";
-import { darken } from "./color.js";
+import { DEFAULT_ACCENT, darken } from "./color.js";
 import type { Deps, Env } from "./context.js";
 import { csrf, requestLog, securityHeaders } from "./middleware.js";
 import { adminRoutes } from "./routes/admin.js";
@@ -40,17 +40,22 @@ export function createApp(deps: Deps): Hono<Env> {
     return c.json({ status: "ok" });
   });
 
+  // Couleur d'accent de la page, passée dans l'URL : chaque personne a la sienne.
   app.get("/theme.css", (c) => {
-    const accent = deps.repo.getSettings().accentColor;
+    const v = c.req.query("v") ?? "";
+    const valid = /^[0-9a-f]{6}$/i.test(v);
+    const accent = valid ? `#${v.toLowerCase()}` : DEFAULT_ACCENT;
     c.header("Content-Type", "text/css; charset=utf-8");
-    c.header("Cache-Control", c.req.query("v") ? "public, max-age=31536000, immutable" : "no-cache");
+    c.header("Cache-Control", valid ? "public, max-age=31536000, immutable" : "no-cache");
     return c.body(`:root{--accent:${accent};--accent-hover:${darken(accent)};}\n`);
   });
 
   // Image de la signature de mail : affichée par les messageries, donc ouverte aux autres origines et jamais mise en cache.
-  app.get("/signature.png", async (c) => {
+  app.get("/:user/signature.png", async (c) => {
+    const user = deps.repo.getUserBySlug(c.req.param("user"));
+    if (!user) return c.body(null, 404);
     const now = deps.now();
-    const selection = await selectSignatureSlots(deps.repo, deps.availability, now);
+    const selection = await selectSignatureSlots(deps.repo, deps.availability, user, now);
     const png = deps.signature.render(selection, now);
     c.header("Content-Type", "image/png");
     c.header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
@@ -60,8 +65,9 @@ export function createApp(deps: Deps): Hono<Env> {
     return c.body(new Uint8Array(png));
   });
 
-  app.get("/media/avatar", (c) => {
-    const avatar = deps.repo.getAvatar();
+  app.get("/media/avatar/:id", (c) => {
+    const id = Number(c.req.param("id"));
+    const avatar = Number.isInteger(id) && id > 0 ? deps.repo.getAvatar(id) : null;
     if (!avatar) return c.body(null, 404);
     c.header("Content-Type", avatar.type);
     c.header("Cache-Control", "public, max-age=31536000, immutable");

@@ -1,5 +1,5 @@
 import type { DateTime } from "luxon";
-import type { Booking, EventType, LocationType, Settings } from "../../db/types.js";
+import type { Booking, EventType, LocationType, User } from "../../db/types.js";
 import {
   dayLabel,
   duration,
@@ -12,7 +12,7 @@ import {
   zoneLabel,
   time as formatTime,
 } from "../format.js";
-import { HostLine, type PageMeta, PublicPage, avatarUrl } from "./layout.js";
+import { HostLine, type HostMeta, type PageMeta, PublicPage, avatarUrl, eventPath, hostPath } from "./layout.js";
 import { ChevronLeft, ChevronRight, Csrf, describedBy, Empty, Field, Notice } from "./ui.js";
 
 export function locationLabel(type: LocationType, value: string): string {
@@ -27,18 +27,51 @@ export function locationLabel(type: LocationType, value: string): string {
   }
 }
 
-// Accueil : liste des types d'événements publics.
-export function HomePage(props: { meta: PageMeta; eventTypes: EventType[] }) {
-  const { settings } = props.meta;
-  const url = avatarUrl(settings);
+// Accueil du site : personnes qui proposent des rendez-vous.
+export function DirectoryPage(props: { meta: PageMeta; hosts: User[] }) {
+  return (
+    <PublicPage {...props.meta}>
+      <div class="home">
+        <header class="home-head">
+          <div>
+            <h1>Prendre rendez-vous</h1>
+            {props.hosts.length > 0 ? <p class="muted">Choisissez votre interlocuteur.</p> : null}
+          </div>
+        </header>
+        {props.hosts.length === 0 ? (
+          <Empty title="Aucun rendez-vous proposé pour le moment.">Revenez plus tard ou contactez directement votre interlocuteur.</Empty>
+        ) : (
+          <ul class="event-list">
+            {props.hosts.map((h) => {
+              const url = avatarUrl(h);
+              return (
+                <li>
+                  <a class="event-link event-link--host" href={hostPath(h)}>
+                    {url ? <img class="avatar" src={url} alt="" width={40} height={40} /> : null}
+                    <span class="event-title">{h.displayName || h.slug}</span>
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </PublicPage>
+  );
+}
+
+// Page d'une personne : ses types d'événements publics.
+export function HomePage(props: { meta: HostMeta; eventTypes: EventType[] }) {
+  const { host } = props.meta;
+  const url = avatarUrl(host);
   return (
     <PublicPage {...props.meta}>
       <div class="home">
         <header class="home-head">
           {url ? <img class="avatar avatar--lg" src={url} alt="" width={56} height={56} /> : null}
           <div>
-            <h1>{settings.displayName || "Prendre rendez-vous"}</h1>
-            {settings.displayName ? <p class="muted">Choisissez un type de rendez-vous.</p> : null}
+            <h1>{host.displayName || "Prendre rendez-vous"}</h1>
+            {host.displayName ? <p class="muted">Choisissez un type de rendez-vous.</p> : null}
           </div>
         </header>
         {props.eventTypes.length === 0 ? (
@@ -47,7 +80,7 @@ export function HomePage(props: { meta: PageMeta; eventTypes: EventType[] }) {
           <ul class="event-list">
             {props.eventTypes.map((et) => (
               <li>
-                <a class="event-link" href={`/${et.slug}`}>
+                <a class="event-link" href={eventPath(host, et)}>
                   <span class="event-title">{et.title}</span>
                   <span class="event-meta">
                     {duration(et.durationMinutes)} · {locationLabel(et.locationType, et.locationValue)}
@@ -69,10 +102,10 @@ function firstLine(text: string): string {
 }
 
 // Colonne gauche : informations sur le rendez-vous.
-export function EventInfo(props: { settings: Settings; title: string; durationMinutes: number; location: string; description?: string; children?: unknown }) {
+export function EventInfo(props: { host: User; title: string; durationMinutes: number; location: string; description?: string; children?: unknown }) {
   return (
     <aside class="booking__info" aria-label="Rendez-vous">
-      <HostLine settings={props.settings} />
+      <HostLine host={props.host} />
       <h1 class="info-title">{props.title}</h1>
       <dl class="meta">
         <div>
@@ -327,13 +360,13 @@ export function Picker(p: PickerProps) {
   );
 }
 
-export function BookingPage(props: { meta: PageMeta; et: EventType; picker: PickerProps }) {
+export function BookingPage(props: { meta: HostMeta; et: EventType; picker: PickerProps }) {
   const { et } = props;
   return (
     <PublicPage {...props.meta}>
       <div class="booking">
         <EventInfo
-          settings={props.meta.settings}
+          host={props.meta.host}
           title={et.title}
           durationMinutes={et.durationMinutes}
           location={locationLabel(et.locationType, et.locationValue)}
@@ -357,7 +390,7 @@ export interface FormValues {
 }
 
 export function FormPage(props: {
-  meta: PageMeta;
+  meta: HostMeta;
   et: EventType;
   start: number;
   tz: string;
@@ -372,7 +405,7 @@ export function FormPage(props: {
     <PublicPage {...props.meta}>
       <div class="booking">
         <EventInfo
-          settings={props.meta.settings}
+          host={props.meta.host}
           title={et.title}
           durationMinutes={et.durationMinutes}
           location={locationLabel(et.locationType, et.locationValue)}
@@ -390,7 +423,7 @@ export function FormPage(props: {
           <h2 class="step-title" id="etape">
             Vos coordonnées
           </h2>
-          <form class="form" method="post" action={`/${et.slug}/reserver`} novalidate>
+          <form class="form" method="post" action={`${eventPath(props.meta.host, et)}/reserver`} novalidate>
             {props.formError ? (
               <Notice kind="error" title={props.formError.title}>
                 {props.formError.text}
@@ -458,7 +491,7 @@ export function FormPage(props: {
   );
 }
 
-function BookingRecap(props: { booking: Booking; tz: string; settings: Settings }) {
+function BookingRecap(props: { booking: Booking; tz: string }) {
   const b = props.booking;
   return (
     <dl class="meta recap">
@@ -505,7 +538,7 @@ function BookingRecap(props: { booking: Booking; tz: string; settings: Settings 
 }
 
 export function BookingStatusPage(props: {
-  meta: PageMeta;
+  meta: HostMeta;
   booking: Booking;
   token: string;
   tz: string;
@@ -533,12 +566,12 @@ export function BookingStatusPage(props: {
       <div class="booking booking--narrow">
         <div class="booking__main">
           <div class="confirm-head">
-            <HostLine settings={props.meta.settings} />
+            <HostLine host={props.meta.host} />
             <h1>{title}</h1>
             {lead ? <p class="muted">{lead}</p> : null}
             {b.status === "cancelled" && b.cancelReason ? <p class="muted">Motif : {b.cancelReason}</p> : null}
           </div>
-          <BookingRecap booking={b} tz={props.tz} settings={props.meta.settings} />
+          <BookingRecap booking={b} tz={props.tz} />
           {b.status === "confirmed" && !past ? (
             <div class="actions">
               <a class="btn" href={`/b/${props.token}/reprogrammer`}>
@@ -551,7 +584,7 @@ export function BookingStatusPage(props: {
           ) : null}
           {b.status === "cancelled" ? (
             <div class="actions">
-              <a class="btn" href="/">
+              <a class="btn" href={hostPath(props.meta.host)}>
                 Prendre un autre rendez-vous
               </a>
             </div>
@@ -562,14 +595,14 @@ export function BookingStatusPage(props: {
   );
 }
 
-export function CancelPage(props: { meta: PageMeta; booking: Booking; token: string; tz: string; error?: string | undefined; reason: string }) {
+export function CancelPage(props: { meta: HostMeta; booking: Booking; token: string; tz: string; error?: string | undefined; reason: string }) {
   const b = props.booking;
   return (
     <PublicPage {...props.meta}>
       <div class="booking booking--narrow">
         <div class="booking__main">
           <div class="confirm-head">
-            <HostLine settings={props.meta.settings} />
+            <HostLine host={props.meta.host} />
             <h1>Annuler le rendez-vous</h1>
             <p class="muted">
               {b.title}, {longDate(b.startAt, props.tz)} à {formatTime(b.startAt, props.tz)}.
@@ -598,14 +631,14 @@ export function CancelPage(props: { meta: PageMeta; booking: Booking; token: str
   );
 }
 
-export function ReschedulePage(props: { meta: PageMeta; booking: Booking; et: EventType; token: string; picker: PickerProps }) {
+export function ReschedulePage(props: { meta: HostMeta; booking: Booking; et: EventType; token: string; picker: PickerProps }) {
   const b = props.booking;
   const tz = props.picker.tz;
   return (
     <PublicPage {...props.meta}>
       <div class="booking">
         <EventInfo
-          settings={props.meta.settings}
+          host={props.meta.host}
           title={b.title}
           durationMinutes={props.et.durationMinutes}
           location={locationLabel(b.locationType, b.locationValue)}
@@ -631,7 +664,7 @@ export function ReschedulePage(props: { meta: PageMeta; booking: Booking; et: Ev
 }
 
 export function RescheduleConfirmPage(props: {
-  meta: PageMeta;
+  meta: HostMeta;
   booking: Booking;
   token: string;
   start: number;
@@ -646,7 +679,7 @@ export function RescheduleConfirmPage(props: {
       <div class="booking booking--narrow">
         <div class="booking__main">
           <div class="confirm-head">
-            <HostLine settings={props.meta.settings} />
+            <HostLine host={props.meta.host} />
             <h1>Confirmer le nouvel horaire</h1>
             <p class="muted">{b.title}</p>
           </div>
@@ -694,7 +727,7 @@ export function RescheduleConfirmPage(props: {
 
 // Page ouverte depuis la signature de mail : quelques créneaux de la semaine, puis le calendrier complet.
 export function ShortlistPage(props: {
-  meta: PageMeta;
+  meta: HostMeta;
   et: EventType;
   status: "ok" | "empty" | "unavailable";
   week: "current" | "next";
@@ -704,13 +737,13 @@ export function ShortlistPage(props: {
 }) {
   const { et, tz } = props;
   const zones = timeZones().includes(tz) ? timeZones() : [tz, ...timeZones()];
-  const fullHref = `/${et.slug}?${new URLSearchParams({ tz }).toString()}`;
+  const fullHref = `${eventPath(props.meta.host, et)}?${new URLSearchParams({ tz }).toString()}`;
   return (
     <PublicPage {...props.meta}>
       <div class="booking booking--narrow">
         <div class="booking__main" data-tz-auto data-tz={tz} data-tz-source={props.tzSource}>
           <div class="confirm-head">
-            <HostLine settings={props.meta.settings} />
+            <HostLine host={props.meta.host} />
             <h1>Réserver un échange</h1>
             <p class="muted">
               {et.title} · {duration(et.durationMinutes)} · {locationLabel(et.locationType, et.locationValue)}
@@ -732,7 +765,7 @@ export function ShortlistPage(props: {
                   <li>
                     <a
                       class="shortlist-slot"
-                      href={`/${et.slug}/reserver?${new URLSearchParams({ debut: new Date(s).toISOString(), tz }).toString()}`}
+                      href={`${eventPath(props.meta.host, et)}/reserver?${new URLSearchParams({ debut: new Date(s).toISOString(), tz }).toString()}`}
                     >
                       <span>{capitalize(dayLabel(s, tz))}</span>
                       <strong>{formatTime(s, tz)}</strong>
@@ -742,7 +775,7 @@ export function ShortlistPage(props: {
               </ul>
             </section>
           )}
-          <form class="tz tz--compact" method="get" action="/creneaux" data-tz-form>
+          <form class="tz tz--compact" method="get" action={`${hostPath(props.meta.host)}/creneaux`} data-tz-form>
             <div class="field">
               <label class="label" for="tz">
                 Fuseau horaire
@@ -774,18 +807,17 @@ export function ShortlistPage(props: {
 
 // Politique de confidentialité, exigée par Google pour publier l'application OAuth.
 export function PrivacyPage(props: { meta: PageMeta; contact: string | null; baseUrl: string }) {
-  const name = props.meta.settings.displayName || "le responsable de ce site";
   return (
     <PublicPage {...props.meta}>
       <article class="prose">
         <h1>Politique de confidentialité</h1>
-        <p class="muted">Service de prise de rendez-vous {props.baseUrl}, exploité par {name}.</p>
+        <p class="muted">Service de prise de rendez-vous {props.baseUrl}, exploité par le responsable de ce site.</p>
 
         <h2>Données collectées</h2>
         <p>Lors d'une réservation : nom, adresse email, note facultative, fuseau horaire et horaire choisi.</p>
         <p>
-          Pour l'administrateur du service : adresse email du compte Google utilisé pour se connecter, et jetons d'accès aux
-          agendas Google qu'il a connectés.
+          Pour chaque personne qui reçoit des rendez-vous : adresse email du compte Google utilisé pour se connecter, nom et
+          image affichés sur sa page, et jetons d'accès aux agendas Google qu'elle a connectés.
         </p>
 
         <h2>Utilisation</h2>
@@ -797,7 +829,7 @@ export function PrivacyPage(props: { meta: PageMeta; contact: string | null; bas
 
         <h2>Données Google</h2>
         <p>
-          Le service accède aux agendas Google de l'administrateur avec son accord : liste des agendas, disponibilités, création
+          Le service accède aux agendas Google de chaque personne qui reçoit des rendez-vous, avec son accord : liste des agendas, disponibilités, création
           et modification des événements de rendez-vous. Ces données ne sont lues que pour calculer les créneaux libres et gérer
           les rendez-vous ; elles ne sont pas conservées au-delà de ce besoin, sauf l'identifiant et la liste des agendas.
         </p>
@@ -812,12 +844,12 @@ export function PrivacyPage(props: { meta: PageMeta; contact: string | null; bas
         <h2>Conservation et sécurité</h2>
         <p>
           Les données sont stockées sur le serveur du service. Les jetons d'accès Google sont chiffrés. Les réservations sont
-          conservées tant que l'administrateur ne les supprime pas.
+          conservées tant que la personne qui reçoit le rendez-vous ne les supprime pas.
         </p>
 
         <h2>Cookies</h2>
         <p>
-          Cookies techniques uniquement : protection des formulaires, fuseau horaire choisi, session de l'administrateur. Aucun
+          Cookies techniques uniquement : protection des formulaires, fuseau horaire choisi, session d'administration. Aucun
           cookie publicitaire ni outil de mesure d'audience.
         </p>
 
@@ -832,7 +864,7 @@ export function PrivacyPage(props: { meta: PageMeta; contact: string | null; bas
           ) : (
             " auprès de l'organisateur du rendez-vous"
           )}
-          . L'administrateur peut retirer l'accès à ses agendas à tout moment depuis son compte Google.
+          . Chaque personne qui reçoit des rendez-vous peut retirer l'accès à ses agendas à tout moment depuis son compte Google.
         </p>
       </article>
     </PublicPage>

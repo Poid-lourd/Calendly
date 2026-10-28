@@ -287,7 +287,8 @@ describe("comptes connectés", () => {
 
   it("un invalid_grant marque le compte déconnecté sans planter", async () => {
     const repo = new Repo(openDatabase(":memory:"));
-    const account = repo.upsertAccount({ subject: "s", email: "moi@exemple.fr", refreshTokenEnc: encrypt("1//r", key), scopes: [] });
+    const user = repo.ensureUser("moi@exemple.fr");
+    const account = repo.upsertAccount(user.id, { subject: "s", email: "moi@exemple.fr", refreshTokenEnc: encrypt("1//r", key), scopes: [] })!;
     const f = fakeFetch(() => ({ status: 400, body: { error: "invalid_grant" } }));
     const accounts = new Accounts(repo, provider(f.fn), key);
     await expect(accounts.sync(account.id)).rejects.toBeInstanceOf(AccountUnavailableError);
@@ -302,15 +303,16 @@ describe("comptes connectés", () => {
 
   it("refuse une connexion sans les scopes agenda", async () => {
     const repo = new Repo(openDatabase(":memory:"));
+    const user = repo.ensureUser("a@b.c");
     const accounts = new Accounts(repo, provider(fakeFetch().fn), key);
     await expect(
-      accounts.connect({
+      accounts.connect(user.id, {
         identity: { subject: "s", email: "a@b.c", emailVerified: true },
         refreshToken: "r",
         scopes: ["openid", "email"],
       }),
     ).rejects.toBeInstanceOf(MissingScopesError);
-    expect(repo.listAccounts()).toEqual([]);
+    expect(repo.listAccounts(user.id)).toEqual([]);
   });
 
   it("stocke le refresh token chiffré et synchronise les agendas", async () => {
@@ -321,7 +323,8 @@ describe("comptes connectés", () => {
         : undefined,
     );
     const accounts = new Accounts(repo, provider(f.fn), key);
-    const acc = await accounts.connect({
+    const user = repo.ensureUser("moi@exemple.fr");
+    const acc = await accounts.connect(user.id, {
       identity: { subject: "s", email: "moi@exemple.fr", emailVerified: true },
       refreshToken: "1//secret-refresh",
       scopes: ["openid", "email", ...CALENDAR_SCOPES],
@@ -329,6 +332,6 @@ describe("comptes connectés", () => {
     expect(acc.refreshTokenEnc).not.toContain("secret-refresh");
     const raw = repo.db.prepare("SELECT refresh_token_enc FROM google_accounts").get() as { refresh_token_enc: string };
     expect(raw.refresh_token_enc.startsWith("v1.")).toBe(true);
-    expect(repo.listCalendars().map((c) => c.externalId)).toEqual(["moi@exemple.fr"]);
+    expect(repo.listCalendars(user.id).map((c) => c.externalId)).toEqual(["moi@exemple.fr"]);
   });
 });

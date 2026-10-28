@@ -1,6 +1,6 @@
 import { DateTime } from "luxon";
 import type { Repo } from "../db/repo.js";
-import type { EventType } from "../db/types.js";
+import type { EventType, User } from "../db/types.js";
 import type { Availability } from "./availability.js";
 import { groupByLocalDate } from "./slots.js";
 
@@ -47,10 +47,10 @@ export function pickSpread(slots: number[], zone: string, max: number): number[]
   return picked.sort((a, b) => a - b);
 }
 
-// Créneaux montrés dans la signature : semaine en cours, sinon semaine suivante, dans le fuseau du planning.
-export async function selectSignatureSlots(repo: Repo, availability: Availability, now: number): Promise<SignatureSelection> {
-  const settings = repo.getSettings();
-  const et = settings.signatureEventTypeId === null ? null : repo.getEventType(settings.signatureEventTypeId);
+// Créneaux montrés dans la signature d'une personne : semaine en cours, sinon semaine suivante, dans le fuseau du planning.
+export async function selectSignatureSlots(repo: Repo, availability: Availability, user: User, now: number): Promise<SignatureSelection> {
+  const found = user.signatureEventTypeId === null ? null : repo.getEventType(user.signatureEventTypeId);
+  const et = found?.userId === user.id ? found : null;
   const schedule = et ? repo.getSchedule(et.scheduleId) : null;
   if (!et || !et.active || !schedule) {
     return { status: "disabled", eventType: null, zone: schedule?.timeZone ?? "Europe/Paris", week: "current", slots: [] };
@@ -65,7 +65,7 @@ export async function selectSignatureSlots(repo: Repo, availability: Availabilit
     const result = await availability.slots(et, from, to);
     if (!result.ok) return { status: "unavailable", eventType: et, zone, week, slots: [] };
     if (result.slots.length > 0) {
-      return { status: "ok", eventType: et, zone, week, slots: pickSpread(result.slots, zone, settings.signatureMaxSlots) };
+      return { status: "ok", eventType: et, zone, week, slots: pickSpread(result.slots, zone, user.signatureMaxSlots) };
     }
   }
   return { status: "empty", eventType: et, zone, week: "next", slots: [] };

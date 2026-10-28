@@ -22,6 +22,7 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: optionalString,
   GOOGLE_CLIENT_SECRET: optionalString,
   ADMIN_EMAILS: optionalString,
+  ADMIN_DOMAINS: optionalString,
   ENCRYPTION_KEY: optionalString,
   TRUST_PROXY: bool,
   DEMO_SEED: bool,
@@ -37,7 +38,9 @@ export interface Config {
   databasePath: string;
   provider: "google" | "mock";
   google: { clientId: string; clientSecret: string } | null;
+  // Adresses et domaines autorisés à se connecter : chaque personne autorisée a son propre espace.
   adminEmails: string[];
+  adminDomains: string[];
   encryptionKey: Buffer;
   trustProxy: boolean;
   demoSeed: boolean;
@@ -76,13 +79,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new ConfigError("BASE_URL ne doit contenir ni chemin ni paramètres.");
   }
 
-  const adminEmails = (e.ADMIN_EMAILS ?? "")
-    .split(",")
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-  if (adminEmails.length === 0) {
-    throw new ConfigError("ADMIN_EMAILS doit contenir au moins une adresse.");
+  const list = (v: string | undefined) =>
+    (v ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+  const adminEmails = list(e.ADMIN_EMAILS);
+  const adminDomains = list(e.ADMIN_DOMAINS).map((d) => d.replace(/^@/, ""));
+  if (adminEmails.length === 0 && adminDomains.length === 0) {
+    throw new ConfigError("ADMIN_EMAILS ou ADMIN_DOMAINS doit autoriser au moins une adresse.");
   }
+  const badDomain = adminDomains.find((d) => !/^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(d));
+  if (badDomain) throw new ConfigError(`ADMIN_DOMAINS : « ${badDomain} » n'est pas un nom de domaine.`);
 
   let google: Config["google"] = null;
   if (!mock) {
@@ -117,10 +125,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     provider: e.CALENDAR_PROVIDER,
     google,
     adminEmails,
+    adminDomains,
     encryptionKey,
     trustProxy: e.TRUST_PROXY,
     demoSeed: e.DEMO_SEED && mock,
     logLevel: e.LOG_LEVEL,
     warnings,
   };
+}
+
+// Adresse Google vérifiée autorisée à ouvrir son espace : listée dans ADMIN_EMAILS ou d'un domaine de ADMIN_DOMAINS.
+export function canSignIn(config: Pick<Config, "adminEmails" | "adminDomains">, email: string): boolean {
+  const e = email.toLowerCase();
+  const domain = e.slice(e.lastIndexOf("@") + 1);
+  return config.adminEmails.includes(e) || (e.includes("@") && config.adminDomains.includes(domain));
 }

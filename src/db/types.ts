@@ -3,7 +3,13 @@ export type LocationType = "meet" | "phone" | "address" | "text";
 export type Visibility = "public" | "unlisted";
 export type BookingStatus = "pending" | "confirmed" | "cancelled";
 
-export interface Settings {
+// Personne qui reçoit des rendez-vous. Son espace est créé à sa première connexion à l'admin.
+export interface User {
+  id: number;
+  // Adresse Google de connexion à l'admin.
+  email: string;
+  // Adresse de sa page publique : /slug.
+  slug: string;
   displayName: string;
   accentColor: string;
   hasAvatar: boolean;
@@ -15,6 +21,7 @@ export interface Settings {
 
 export interface GoogleAccount {
   id: number;
+  userId: number;
   subject: string;
   email: string;
   refreshTokenEnc: string | null;
@@ -45,6 +52,7 @@ export interface MinuteRange {
 
 export interface Schedule {
   id: number;
+  userId: number;
   name: string;
   timeZone: string;
 }
@@ -58,6 +66,8 @@ export interface ScheduleDetail extends Schedule {
 
 export interface EventType {
   id: number;
+  userId: number;
+  // Unique pour une même personne : la page est /slug-de-la-personne/slug.
   slug: string;
   title: string;
   description: string;

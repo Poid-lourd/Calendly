@@ -2,7 +2,7 @@ import { DateTime } from "luxon";
 import { describe, expect, it } from "vitest";
 import { AvailabilityCheckError, BookingStateError, SlotUnavailableError } from "../../src/domain/bookings.js";
 import { sha256 } from "../../src/lib/crypto.js";
-import { createContext, firstSlots } from "../helpers.js";
+import { createContext, demoUser, eventType, firstSlots } from "../helpers.js";
 
 const PARIS = "Europe/Paris";
 const invitee = { name: "Jeanne Dupont", email: "jeanne@exemple.fr", note: "Sujet : refonte du site", timeZone: "America/Montreal" };
@@ -10,7 +10,7 @@ const invitee = { name: "Jeanne Dupont", email: "jeanne@exemple.fr", note: "Suje
 describe("réservation", () => {
   it("crée l'événement dans l'agenda de destination avec l'invité, Meet et les liens de gestion", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(ctx, "echange-30-min");
     const [start] = await firstSlots(ctx, et.slug);
     const { booking, token } = await ctx.bookings.create({ eventType: et, start: start!, ...invitee });
 
@@ -32,7 +32,7 @@ describe("réservation", () => {
 
   it("le créneau réservé et ses tampons disparaissent des disponibilités", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(ctx, "echange-30-min");
     const before = await firstSlots(ctx, et.slug);
     const start = before[0]!;
     await ctx.bookings.create({ eventType: et, start, ...invitee });
@@ -44,17 +44,17 @@ describe("réservation", () => {
 
   it("refuse un créneau hors disponibilités", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(ctx, "echange-30-min");
     const sunday = DateTime.fromISO("2027-01-10T10:00", { zone: PARIS }).toMillis();
     await expect(ctx.bookings.create({ eventType: et, start: sunday, ...invitee })).rejects.toBeInstanceOf(SlotUnavailableError);
     const misaligned = (await firstSlots(ctx, et.slug))[0]! + 5 * 60_000;
     await expect(ctx.bookings.create({ eventType: et, start: misaligned, ...invitee })).rejects.toBeInstanceOf(SlotUnavailableError);
-    expect(ctx.repo.listBookings({ when: "upcoming", limit: 10, offset: 0 })).toEqual([]);
+    expect(ctx.repo.listBookings(demoUser(ctx).id, { when: "upcoming", limit: 10, offset: 0 })).toEqual([]);
   });
 
   it("un type inactif ne peut pas être réservé", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(ctx, "echange-30-min");
     const [start] = await firstSlots(ctx, et.slug);
     await expect(ctx.bookings.create({ eventType: { ...et, active: false }, start: start!, ...invitee })).rejects.toBeInstanceOf(
       BookingStateError,
@@ -63,7 +63,7 @@ describe("réservation", () => {
 
   it("respecte le plafond quotidien", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("point-projet")!;
+    const et = eventType(ctx, "point-projet");
     const slots = await firstSlots(ctx, et.slug);
     const day = DateTime.fromMillis(slots[0]!, { zone: PARIS }).toISODate();
     const sameDay = slots.filter((s) => DateTime.fromMillis(s, { zone: PARIS }).toISODate() === day);
@@ -77,8 +77,8 @@ describe("réservation", () => {
 
   it("une réservation sur l'agenda entreprise bloque les types qui le surveillent", async () => {
     const ctx = await createContext();
-    const projet = ctx.repo.getEventTypeBySlug("point-projet")!;
-    const echange = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const projet = eventType(ctx, "point-projet");
+    const echange = eventType(ctx, "echange-30-min");
     const start = (await firstSlots(ctx, projet.slug))[0]!;
     expect(await firstSlots(ctx, echange.slug)).toContain(start);
     await ctx.bookings.create({ eventType: projet, start, ...invitee });
@@ -89,9 +89,9 @@ describe("réservation", () => {
 describe("nombre de créneaux par plage", () => {
   it("propose les créneaux demandés et chaque réservation en consomme un", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(ctx, "echange-30-min");
     const schedule = ctx.repo.getSchedule(et.scheduleId)!;
-    ctx.repo.saveSchedule(schedule.id, { name: schedule.name, timeZone: PARIS, weekly: { 2: [{ start: 13 * 60, end: 15 * 60, maxSlots: 2 }] } });
+    ctx.repo.saveSchedule(schedule.userId, schedule.id, { name: schedule.name, timeZone: PARIS, weekly: { 2: [{ start: 13 * 60, end: 15 * 60, maxSlots: 2 }] } });
     ctx.availability.invalidate();
     const tuesday = (time: string) => DateTime.fromISO(`2027-01-05T${time}`, { zone: PARIS }).toMillis();
 
@@ -110,7 +110,7 @@ describe("nombre de créneaux par plage", () => {
 describe("annulation", () => {
   it("annule l'événement Google avec notification et libère le créneau", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(ctx, "echange-30-min");
     const [start] = await firstSlots(ctx, et.slug);
     const { booking } = await ctx.bookings.create({ eventType: et, start: start!, ...invitee });
     await ctx.bookings.cancel(booking, "invitee", "Empêchement");
@@ -129,7 +129,7 @@ describe("annulation", () => {
 
   it("l'invité ne peut pas annuler un rendez-vous passé", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(ctx, "echange-30-min");
     const [start] = await firstSlots(ctx, et.slug);
     const { booking } = await ctx.bookings.create({ eventType: et, start: start!, ...invitee });
     ctx.clock.now = booking.endAt + 1;
@@ -142,7 +142,7 @@ describe("annulation", () => {
 describe("reprogrammation", () => {
   it("déplace l'événement Google existant et garde le même lien", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(ctx, "echange-30-min");
     const slots = await firstSlots(ctx, et.slug);
     const { booking, token } = await ctx.bookings.create({ eventType: et, start: slots[0]!, ...invitee });
     const target = slots[slots.length - 1]!;
@@ -162,9 +162,9 @@ describe("reprogrammation", () => {
 
   it("accepte un nouvel horaire qui chevauche l'ancien", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("point-projet")!;
-    ctx.repo.saveEventType(et.id, { ...et, slotIntervalMinutes: 30, bufferBeforeMinutes: 0, bufferAfterMinutes: 0 });
-    const updated = ctx.repo.getEventTypeBySlug("point-projet")!;
+    const et = eventType(ctx, "point-projet");
+    ctx.repo.saveEventType(et.userId, et.id, { ...et, slotIntervalMinutes: 30, bufferBeforeMinutes: 0, bufferAfterMinutes: 0 });
+    const updated = eventType(ctx, "point-projet");
     const slots = await firstSlots(ctx, updated.slug);
     const start = slots.find((s) => slots.includes(s + 30 * 60_000))!;
     const { booking } = await ctx.bookings.create({ eventType: updated, start, ...invitee });
@@ -174,7 +174,7 @@ describe("reprogrammation", () => {
 
   it("refuse un créneau occupé", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(ctx, "echange-30-min");
     const slots = await firstSlots(ctx, et.slug);
     const a = await ctx.bookings.create({ eventType: et, start: slots[0]!, ...invitee });
     await ctx.bookings.create({ eventType: et, start: slots[5]!, ...invitee, email: "autre@exemple.fr" });
@@ -186,9 +186,9 @@ describe("reprogrammation", () => {
 describe("compte déconnecté", () => {
   it("aucun créneau n'est proposé et la réservation est refusée", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(ctx, "echange-30-min");
     const [start] = await firstSlots(ctx, et.slug);
-    const account = ctx.repo.listAccounts()[0]!;
+    const account = ctx.repo.listAccounts(demoUser(ctx).id)[0]!;
     ctx.repo.markAccountDisconnected(account.id, "invalid_grant");
     const res = await ctx.availability.slots(et, ctx.clock.now, ctx.clock.now + 7 * 86_400_000);
     expect(res.ok).toBe(false);
@@ -197,12 +197,12 @@ describe("compte déconnecté", () => {
 
   it("un invalid_grant pendant le calcul déconnecte le compte", async () => {
     const ctx = await createContext();
-    await ctx.accounts.connect({
+    await ctx.accounts.connect(demoUser(ctx).id, {
       identity: { subject: "mock-revoque@exemple.test", email: "revoque@exemple.test", emailVerified: true },
       refreshToken: "mock-refresh:revoque@exemple.test",
       scopes: ctx.provider.connectScopes,
     });
-    const revoked = ctx.repo.listAccounts().find((a) => a.email === "revoque@exemple.test")!;
+    const revoked = ctx.repo.listAccounts(demoUser(ctx).id).find((a) => a.email === "revoque@exemple.test")!;
     expect(revoked.status).toBe("disconnected");
     expect(revoked.lastError).toMatch(/invalid_grant/);
   });
@@ -211,7 +211,7 @@ describe("compte déconnecté", () => {
 describe("reprise après interruption", () => {
   it("confirme une réservation dont l'événement existe et supprime les autres", async () => {
     const ctx = await createContext();
-    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(ctx, "echange-30-min");
     const slots = await firstSlots(ctx, et.slug);
     const dest = ctx.repo.getCalendar(et.destinationCalendarId)!;
     const base = {

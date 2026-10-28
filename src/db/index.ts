@@ -5,13 +5,14 @@ import { migrate } from "./migrations.js";
 
 export type DB = Database.Database;
 
-export function openDatabase(file: string): DB {
+// owner : adresse à qui rattacher les données d'une installation antérieure aux espaces par personne.
+export function openDatabase(file: string, opts: { owner?: string | null } = {}): DB {
   if (file !== ":memory:") mkdirSync(path.dirname(file), { recursive: true });
   const db = new Database(file);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
   db.pragma("synchronous = NORMAL");
-  migrate(db);
+  migrate(db, { owner: opts.owner ?? null });
   return db;
 }

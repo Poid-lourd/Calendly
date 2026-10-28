@@ -2,19 +2,21 @@ import type { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 import { DateTime } from "luxon";
 import { z } from "zod";
-import type { Booking, EventType } from "../../db/types.js";
+import type { Booking, EventType, User } from "../../db/types.js";
 import { AvailabilityCheckError, BookingStateError, SlotUnavailableError } from "../../domain/bookings.js";
 import { selectSignatureSlots } from "../../domain/signature.js";
 import { groupByLocalDate } from "../../domain/slots.js";
 import { sha256 } from "../../lib/crypto.js";
 import { log } from "../../lib/log.js";
+import { RESERVED_USER_SLUGS } from "../../lib/slug.js";
 import { AccountUnavailableError } from "../../providers/accounts.js";
 import { type Ctx, type Env, field } from "../context.js";
 import { isValidZone } from "../format.js";
 import { clientIp } from "../middleware.js";
-import type { PageMeta } from "../views/layout.js";
+import { eventPath, hostPath, type PageMeta } from "../views/layout.js";
 import {
   BookingPage,
+  DirectoryPage,
   BookingStatusPage,
   CancelPage,
   ErrorPage,
@@ -29,31 +31,29 @@ import {
   ShortlistPage,
 } from "../views/public.js";
 
-export const RESERVED_SLUGS = new Set([
-  "admin",
-  "auth",
-  "b",
-  "assets",
-  "media",
-  "healthz",
-  "theme.css",
-  "favicon.ico",
-  "robots.txt",
-  "api",
-  "creneaux",
-  "signature.png",
-  "confidentialite",
-]);
-
 const MINUTE = 60_000;
 
-export function meta(c: Ctx, title: string, scripts?: PageMeta["scripts"]): PageMeta {
+// host : personne dont c'est la page, null pour une page commune du site.
+export function meta<H extends User | null>(c: Ctx, title: string, host: H, scripts?: PageMeta["scripts"]): PageMeta & { host: H } {
   const deps = c.get("deps");
-  return { title, assets: deps.assets, settings: deps.repo.getSettings(), csrf: c.get("csrf"), ...(scripts ? { scripts } : {}) };
+  return { title, assets: deps.assets, host, csrf: c.get("csrf"), ...(scripts ? { scripts } : {}) };
 }
 
 export function errorPage(c: Ctx, status: 400 | 403 | 404 | 409 | 410 | 429 | 500 | 502 | 503, title: string, text: string) {
-  return c.html(<ErrorPage meta={meta(c, title)} status={status} title={title} text={text} />, status);
+  return c.html(<ErrorPage meta={meta(c, title, null)} status={status} title={title} text={text} />, status);
+}
+
+// Personne désignée par le premier segment de l'URL.
+function hostFrom(c: Ctx): User | null {
+  const slug = c.req.param("user") ?? "";
+  return RESERVED_USER_SLUGS.has(slug) ? null : c.get("deps").repo.getUserBySlug(slug);
+}
+
+// Type d'événement actif d'une personne, désigné par /personne/type.
+function eventTypeFrom(c: Ctx): { host: User; et: EventType } | null {
+  const host = hostFrom(c);
+  const et = host ? c.get("deps").repo.getEventTypeBySlug(host.id, c.req.param("slug") ?? "") : null;
+  return host && et?.active ? { host, et } : null;
 }
 
 export function notFound(c: Ctx) {
@@ -143,11 +143,15 @@ const bookingSchema = z.object({
   note: z.string().trim().max(1000, "1000 caractères au maximum."),
 });
 
-function bookingByToken(c: Ctx): { booking: Booking; token: string } | null {
+// Réservation désignée par son lien de gestion, avec la personne qui reçoit le rendez-vous.
+function bookingByToken(c: Ctx): { booking: Booking; token: string; host: User } | null {
   const token = c.req.param("token") ?? "";
   if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
-  const booking = c.get("deps").repo.getBookingByTokenHash(sha256(token));
-  return booking ? { booking, token } : null;
+  const repo = c.get("deps").repo;
+  const booking = repo.getBookingByTokenHash(sha256(token));
+  const et = booking ? repo.getEventType(booking.eventTypeId) : null;
+  const host = et ? repo.getUser(et.userId) : null;
+  return booking && host ? { booking, token, host } : null;
 }
 
 function providerFailure(err: unknown): { title: string; text: string } {
@@ -158,17 +162,13 @@ function providerFailure(err: unknown): { title: string; text: string } {
 }
 
 export function publicRoutes(app: Hono<Env>): void {
-  app.get("/", (c) => {
-    const eventTypes = c.get("deps").repo.listPublicEventTypes();
-    const settings = c.get("deps").repo.getSettings();
-    return c.html(<HomePage meta={meta(c, settings.displayName || "Prendre rendez-vous")} eventTypes={eventTypes} />);
-  });
+  app.get("/", (c) => c.html(<DirectoryPage meta={meta(c, "Prendre rendez-vous", null)} hosts={c.get("deps").repo.listHosts()} />));
 
   app.get("/confidentialite", (c) => {
     const deps = c.get("deps");
     return c.html(
       <PrivacyPage
-        meta={meta(c, "Politique de confidentialité")}
+        meta={meta(c, "Politique de confidentialité", null)}
         contact={deps.config.adminEmails[0] ?? null}
         baseUrl={deps.config.baseUrl.origin}
       />,
@@ -176,112 +176,6 @@ export function publicRoutes(app: Hono<Env>): void {
   });
 
   app.get("/robots.txt", (c) => c.text("User-agent: *\nDisallow: /admin\nDisallow: /b/\nDisallow: /auth/\n"));
-
-  // Quelques créneaux de la semaine, page ouverte depuis la signature de mail.
-  app.get("/creneaux", async (c) => {
-    const deps = c.get("deps");
-    if (limited(c, "picker", 120, MINUTE)) return tooMany(c);
-    const selection = await selectSignatureSlots(deps.repo, deps.availability, deps.now());
-    if (selection.status === "disabled" || !selection.eventType) return c.redirect("/", 302);
-    const { tz, source } = resolveTz(c, selection.zone);
-    return c.html(
-      <ShortlistPage
-        meta={meta(c, "Réserver un échange", ["booking"])}
-        et={selection.eventType}
-        status={selection.status}
-        week={selection.week}
-        slots={selection.slots}
-        tz={tz}
-        tzSource={source}
-      />,
-    );
-  });
-
-  // Étapes 1 et 2 : jour puis horaire.
-  app.get("/:slug", async (c) => {
-    const slug = c.req.param("slug");
-    if (RESERVED_SLUGS.has(slug)) return notFound(c);
-    const deps = c.get("deps");
-    const et = deps.repo.getEventTypeBySlug(slug);
-    if (!et || !et.active) return notFound(c);
-    if (limited(c, "picker", 120, MINUTE)) return tooMany(c);
-    const schedule = deps.repo.getSchedule(et.scheduleId)!;
-    const picker = await buildPicker(c, et, {
-      baseHref: `/${et.slug}`,
-      slotHref: (tz) => (start) => `/${et.slug}/reserver?${new URLSearchParams({ debut: new Date(start).toISOString(), tz }).toString()}`,
-      tzFallback: schedule.timeZone,
-      tzSource: "default",
-    });
-    if (!picker) return notFound(c);
-    c.header("Vary", "X-Partial");
-    if (c.req.header("x-partial") === "1") return c.html(<PickerInner {...picker} />);
-    return c.html(<BookingPage meta={meta(c, et.title, ["booking"])} et={et} picker={picker} />);
-  });
-
-  // Étape 3 : coordonnées.
-  app.get("/:slug/reserver", (c) => {
-    const deps = c.get("deps");
-    const et = deps.repo.getEventTypeBySlug(c.req.param("slug"));
-    if (!et || !et.active) return notFound(c);
-    const start = parseInstant(c.req.query("debut"));
-    const tz = c.req.query("tz");
-    if (start === null || !isValidZone(tz) || start < deps.now()) return c.redirect(`/${et.slug}`, 302);
-    const day = DateTime.fromMillis(start, { zone: tz });
-    const backHref = `/${et.slug}?${new URLSearchParams({ mois: day.toFormat("yyyy-MM"), jour: day.toISODate()!, tz }).toString()}`;
-    return c.html(
-      <FormPage meta={meta(c, et.title)} et={et} start={start} tz={tz} values={{ nom: "", email: "", note: "" }} errors={{}} backHref={backHref} />,
-    );
-  });
-
-  app.post("/:slug/reserver", async (c) => {
-    const deps = c.get("deps");
-    const et = deps.repo.getEventTypeBySlug(c.req.param("slug"));
-    if (!et || !et.active) return notFound(c);
-    if (limited(c, "booking", 10, 10 * MINUTE)) return tooMany(c);
-    const body = await c.req.parseBody({ all: true });
-    const start = parseInstant(field(body, "debut"));
-    const tz = field(body, "tz");
-    if (start === null || !isValidZone(tz)) return c.redirect(`/${et.slug}`, 303);
-    const values: FormValues = { nom: field(body, "nom"), email: field(body, "email"), note: field(body, "note") };
-    const day = DateTime.fromMillis(start, { zone: tz });
-    const backHref = `/${et.slug}?${new URLSearchParams({ mois: day.toFormat("yyyy-MM"), jour: day.toISODate()!, tz }).toString()}`;
-    const render = (status: 400 | 409 | 503, errors: Partial<Record<keyof FormValues, string>>, formError?: { title: string; text: string }) =>
-      c.html(
-        <FormPage meta={meta(c, et.title)} et={et} start={start} tz={tz} values={values} errors={errors} formError={formError} backHref={backHref} />,
-        status,
-      );
-
-    if (field(body, "site_web") !== "") {
-      log.warn("réservation rejetée par le pot de miel", { eventTypeId: et.id });
-      return render(400, {}, { title: "Demande refusée", text: "Votre demande n'a pas pu être traitée." });
-    }
-    const parsed = bookingSchema.safeParse(values);
-    if (!parsed.success) {
-      const errors: Partial<Record<keyof FormValues, string>> = {};
-      for (const issue of parsed.error.issues) {
-        const key = issue.path[0] as keyof FormValues;
-        errors[key] ??= issue.message;
-      }
-      return render(400, errors, { title: "Formulaire incomplet", text: "Corrigez les champs signalés." });
-    }
-    try {
-      const { token } = await deps.bookings.create({
-        eventType: et,
-        start,
-        name: parsed.data.nom,
-        email: parsed.data.email.toLowerCase(),
-        note: parsed.data.note,
-        timeZone: tz,
-      });
-      return c.redirect(`/b/${token}?nouveau=1`, 303);
-    } catch (err) {
-      if (err instanceof SlotUnavailableError) {
-        return render(409, {}, { title: "Horaire indisponible", text: "Cet horaire vient d'être pris ou n'est plus proposé. Choisissez-en un autre." });
-      }
-      if (err instanceof BookingStateError) return notFound(c);
-      return render(503, {}, providerFailure(err));
-    }
-  });
 
   // Étape 4 et gestion : récapitulatif, annulation, reprogrammation.
   app.get("/b/:token", (c) => {
@@ -292,7 +186,7 @@ export function publicRoutes(app: Hono<Env>): void {
     const state = c.req.query("nouveau") === "1" ? "new" : c.req.query("deplace") === "1" ? "rescheduled" : "view";
     return c.html(
       <BookingStatusPage
-        meta={{ ...meta(c, "Votre rendez-vous"), robots: "noindex" }}
+        meta={{ ...meta(c, "Votre rendez-vous", found.host), robots: "noindex" }}
         booking={found.booking}
         token={found.token}
         tz={tz}
@@ -308,7 +202,7 @@ export function publicRoutes(app: Hono<Env>): void {
     const { booking, token } = found;
     if (booking.status !== "confirmed" || booking.endAt <= c.get("deps").now()) return c.redirect(`/b/${token}`, 302);
     return c.html(
-      <CancelPage meta={{ ...meta(c, "Annuler"), robots: "noindex" }} booking={booking} token={token} tz={booking.inviteeTimeZone} reason="" />,
+      <CancelPage meta={{ ...meta(c, "Annuler", found.host), robots: "noindex" }} booking={booking} token={token} tz={booking.inviteeTimeZone} reason="" />,
     );
   });
 
@@ -326,7 +220,7 @@ export function publicRoutes(app: Hono<Env>): void {
       const failure = providerFailure(err);
       return c.html(
         <CancelPage
-          meta={{ ...meta(c, "Annuler"), robots: "noindex" }}
+          meta={{ ...meta(c, "Annuler", found.host), robots: "noindex" }}
           booking={booking}
           token={token}
           tz={booking.inviteeTimeZone}
@@ -362,7 +256,7 @@ export function publicRoutes(app: Hono<Env>): void {
     c.header("Vary", "X-Partial");
     if (c.req.header("x-partial") === "1") return c.html(<PickerInner {...picker} />);
     return c.html(
-      <ReschedulePage meta={{ ...meta(c, "Reprogrammer", ["booking"]), robots: "noindex" }} booking={booking} et={et} token={token} picker={picker} />,
+      <ReschedulePage meta={{ ...meta(c, "Reprogrammer", found.host, ["booking"]), robots: "noindex" }} booking={booking} et={et} token={token} picker={picker} />,
     );
   });
 
@@ -377,7 +271,7 @@ export function publicRoutes(app: Hono<Env>): void {
     if (!et || booking.status !== "confirmed" || start === null || !isValidZone(tz)) return c.redirect(`/b/${token}`, 302);
     return c.html(
       <RescheduleConfirmPage
-        meta={{ ...meta(c, "Reprogrammer"), robots: "noindex" }}
+        meta={{ ...meta(c, "Reprogrammer", found.host), robots: "noindex" }}
         booking={booking}
         token={token}
         start={start}
@@ -412,7 +306,7 @@ export function publicRoutes(app: Hono<Env>): void {
       }
       return c.html(
         <RescheduleConfirmPage
-          meta={{ ...meta(c, "Reprogrammer"), robots: "noindex" }}
+          meta={{ ...meta(c, "Reprogrammer", found.host), robots: "noindex" }}
           booking={booking}
           token={token}
           start={start}
@@ -424,4 +318,125 @@ export function publicRoutes(app: Hono<Env>): void {
       );
     }
   });
+
+  // Page d'une personne : ses types d'événements publics.
+  app.get("/:user", (c) => {
+    const host = hostFrom(c);
+    if (!host) return notFound(c);
+    const eventTypes = c.get("deps").repo.listPublicEventTypes(host.id);
+    return c.html(<HomePage meta={meta(c, host.displayName || "Prendre rendez-vous", host)} eventTypes={eventTypes} />);
+  });
+
+  // Quelques créneaux de la semaine, page ouverte depuis la signature de mail.
+  app.get("/:user/creneaux", async (c) => {
+    const deps = c.get("deps");
+    const host = hostFrom(c);
+    if (!host) return notFound(c);
+    if (limited(c, "picker", 120, MINUTE)) return tooMany(c);
+    const selection = await selectSignatureSlots(deps.repo, deps.availability, host, deps.now());
+    if (selection.status === "disabled" || !selection.eventType) return c.redirect(hostPath(host), 302);
+    const { tz, source } = resolveTz(c, selection.zone);
+    return c.html(
+      <ShortlistPage
+        meta={meta(c, "Réserver un échange", host, ["booking"])}
+        et={selection.eventType}
+        status={selection.status}
+        week={selection.week}
+        slots={selection.slots}
+        tz={tz}
+        tzSource={source}
+      />,
+    );
+  });
+
+  // Étapes 1 et 2 : jour puis horaire.
+  app.get("/:user/:slug", async (c) => {
+    const found = eventTypeFrom(c);
+    if (!found) return notFound(c);
+    const { host, et } = found;
+    const deps = c.get("deps");
+    if (limited(c, "picker", 120, MINUTE)) return tooMany(c);
+    const schedule = deps.repo.getSchedule(et.scheduleId)!;
+    const path = eventPath(host, et);
+    const picker = await buildPicker(c, et, {
+      baseHref: path,
+      slotHref: (tz) => (start) => `${path}/reserver?${new URLSearchParams({ debut: new Date(start).toISOString(), tz }).toString()}`,
+      tzFallback: schedule.timeZone,
+      tzSource: "default",
+    });
+    if (!picker) return notFound(c);
+    c.header("Vary", "X-Partial");
+    if (c.req.header("x-partial") === "1") return c.html(<PickerInner {...picker} />);
+    return c.html(<BookingPage meta={meta(c, et.title, host, ["booking"])} et={et} picker={picker} />);
+  });
+
+  // Étape 3 : coordonnées.
+  app.get("/:user/:slug/reserver", (c) => {
+    const deps = c.get("deps");
+    const found = eventTypeFrom(c);
+    if (!found) return notFound(c);
+    const { host, et } = found;
+    const path = eventPath(host, et);
+    const start = parseInstant(c.req.query("debut"));
+    const tz = c.req.query("tz");
+    if (start === null || !isValidZone(tz) || start < deps.now()) return c.redirect(path, 302);
+    const day = DateTime.fromMillis(start, { zone: tz });
+    const backHref = `${path}?${new URLSearchParams({ mois: day.toFormat("yyyy-MM"), jour: day.toISODate()!, tz }).toString()}`;
+    return c.html(
+      <FormPage meta={meta(c, et.title, host)} et={et} start={start} tz={tz} values={{ nom: "", email: "", note: "" }} errors={{}} backHref={backHref} />,
+    );
+  });
+
+  app.post("/:user/:slug/reserver", async (c) => {
+    const deps = c.get("deps");
+    const found = eventTypeFrom(c);
+    if (!found) return notFound(c);
+    const { host, et } = found;
+    const path = eventPath(host, et);
+    if (limited(c, "booking", 10, 10 * MINUTE)) return tooMany(c);
+    const body = await c.req.parseBody({ all: true });
+    const start = parseInstant(field(body, "debut"));
+    const tz = field(body, "tz");
+    if (start === null || !isValidZone(tz)) return c.redirect(path, 303);
+    const values: FormValues = { nom: field(body, "nom"), email: field(body, "email"), note: field(body, "note") };
+    const day = DateTime.fromMillis(start, { zone: tz });
+    const backHref = `${path}?${new URLSearchParams({ mois: day.toFormat("yyyy-MM"), jour: day.toISODate()!, tz }).toString()}`;
+    const render = (status: 400 | 409 | 503, errors: Partial<Record<keyof FormValues, string>>, formError?: { title: string; text: string }) =>
+      c.html(
+        <FormPage meta={meta(c, et.title, host)} et={et} start={start} tz={tz} values={values} errors={errors} formError={formError} backHref={backHref} />,
+        status,
+      );
+
+    if (field(body, "site_web") !== "") {
+      log.warn("réservation rejetée par le pot de miel", { eventTypeId: et.id });
+      return render(400, {}, { title: "Demande refusée", text: "Votre demande n'a pas pu être traitée." });
+    }
+    const parsed = bookingSchema.safeParse(values);
+    if (!parsed.success) {
+      const errors: Partial<Record<keyof FormValues, string>> = {};
+      for (const issue of parsed.error.issues) {
+        const key = issue.path[0] as keyof FormValues;
+        errors[key] ??= issue.message;
+      }
+      return render(400, errors, { title: "Formulaire incomplet", text: "Corrigez les champs signalés." });
+    }
+    try {
+      const { token } = await deps.bookings.create({
+        eventType: et,
+        start,
+        name: parsed.data.nom,
+        email: parsed.data.email.toLowerCase(),
+        note: parsed.data.note,
+        timeZone: tz,
+      });
+      return c.redirect(`/b/${token}?nouveau=1`, 303);
+    } catch (err) {
+      if (err instanceof SlotUnavailableError) {
+        return render(409, {}, { title: "Horaire indisponible", text: "Cet horaire vient d'être pris ou n'est plus proposé. Choisissez-en un autre." });
+      }
+      if (err instanceof BookingStateError) return notFound(c);
+      return render(503, {}, providerFailure(err));
+    }
+  });
+
 }

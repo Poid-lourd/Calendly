@@ -2,9 +2,10 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { DateTime } from "luxon";
 import type { EventTypeInput } from "../../db/repo.js";
-import type { EventType, LocationType, MinuteRange } from "../../db/types.js";
+import type { Booking, EventType, GoogleAccount, LocationType, MinuteRange, ScheduleDetail, User } from "../../db/types.js";
 import { BookingStateError } from "../../domain/bookings.js";
 import { log } from "../../lib/log.js";
+import { RESERVED_EVENT_SLUGS, RESERVED_USER_SLUGS, SLUG_PATTERN } from "../../lib/slug.js";
 import { AccountUnavailableError } from "../../providers/accounts.js";
 import { contrast, isHexColor } from "../color.js";
 import { type Ctx, type Deps, type Env, field, fields } from "../context.js";
@@ -28,7 +29,7 @@ import {
 } from "../views/admin.js";
 import { signatureHtml } from "../signature.js";
 import { requireAdmin } from "./auth.js";
-import { RESERVED_SLUGS, notFound } from "./public.js";
+import { notFound } from "./public.js";
 
 const FLASH: Record<string, string> = {
   enregistre: "Modifications enregistrées.",
@@ -47,23 +48,28 @@ const CONNECT_ERRORS: Record<string, string> = {
   autorisations: "Toutes les autorisations demandées sont nécessaires. Recommencez en cochant l'accès à Google Agenda.",
   echec: "La connexion a échoué. Réessayez.",
   actualisation: "La liste des agendas n'a pas pu être lue. Le compte est peut-être déconnecté.",
+  "deja-connecte": "Ce compte Google est déjà connecté par une autre personne de ce site. Connectez votre propre compte.",
 };
 
-function adminZone(deps: Deps): string {
-  return deps.repo.listSchedules()[0]?.timeZone ?? "Europe/Paris";
+// Personne connectée : l'admin ne montre et ne modifie que ce qui lui appartient.
+const me = (c: Ctx): User => c.get("admin")!;
+
+function adminZone(c: Ctx): string {
+  return c.get("deps").repo.listSchedules(me(c).id)[0]?.timeZone ?? "Europe/Paris";
 }
 
 function adminMeta(c: Ctx, title: string, section: AdminMeta["section"]): AdminMeta {
   const deps = c.get("deps");
+  const user = me(c);
   const ok = c.req.query("ok");
   return {
     title,
     assets: deps.assets,
-    settings: deps.repo.getSettings(),
+    host: user,
     csrf: c.get("csrf"),
-    email: c.get("admin")!.email,
+    email: user.email,
     section,
-    disconnected: deps.repo.listAccounts().filter((a) => a.status !== "connected"),
+    disconnected: deps.repo.listAccounts(user.id).filter((a) => a.status !== "connected"),
     flash: ok ? FLASH[ok] : undefined,
   };
 }
@@ -72,6 +78,32 @@ const idParam = (c: Ctx): number | null => {
   const v = Number(c.req.param("id"));
   return Number.isInteger(v) && v > 0 ? v : null;
 };
+
+// Éléments désignés par l'URL, seulement s'ils appartiennent à la personne connectée. Sinon null : la route répond 404.
+function ownEventType(c: Ctx): EventType | null {
+  const id = idParam(c);
+  const et = id === null ? null : c.get("deps").repo.getEventType(id);
+  return et && et.userId === me(c).id ? et : null;
+}
+
+function ownSchedule(c: Ctx): ScheduleDetail | null {
+  const id = idParam(c);
+  const schedule = id === null ? null : c.get("deps").repo.getSchedule(id);
+  return schedule && schedule.userId === me(c).id ? schedule : null;
+}
+
+function ownAccount(c: Ctx): GoogleAccount | null {
+  const id = idParam(c);
+  const account = id === null ? null : c.get("deps").repo.getAccount(id);
+  return account && account.userId === me(c).id ? account : null;
+}
+
+function ownBooking(c: Ctx, id: number): Booking | null {
+  const repo = c.get("deps").repo;
+  const booking = repo.getBooking(id);
+  const et = booking ? repo.getEventType(booking.eventTypeId) : null;
+  return booking && et?.userId === me(c).id ? booking : null;
+}
 
 // ===== Types d'événements : formulaire =====
 
@@ -97,9 +129,11 @@ function eventTypeValues(et: EventType): EventTypeValues {
   };
 }
 
-function defaultEventTypeValues(deps: Deps): EventTypeValues {
-  const accounts = new Set(deps.repo.listAccounts().filter((a) => a.status === "connected").map((a) => a.id));
-  const calendars = deps.repo.listCalendars();
+function defaultEventTypeValues(c: Ctx): EventTypeValues {
+  const deps = c.get("deps");
+  const user = me(c);
+  const accounts = new Set(deps.repo.listAccounts(user.id).filter((a) => a.status === "connected").map((a) => a.id));
+  const calendars = deps.repo.listCalendars(user.id);
   const destination = calendars.find((c) => accounts.has(c.accountId) && c.isPrimary && isWritable(c)) ?? calendars.find(isWritable);
   // Bloquants par défaut : l'agenda de destination et les autres agendas dont un compte connecté est propriétaire.
   const owned = calendars.filter((c) => accounts.has(c.accountId) && c.present && c.accessRole === "owner").map((c) => c.id);
@@ -111,7 +145,7 @@ function defaultEventTypeValues(deps: Deps): EventTypeValues {
     duration: "30",
     locationType: "meet",
     locationValue: "",
-    scheduleId: String(deps.repo.listSchedules()[0]?.id ?? ""),
+    scheduleId: String(deps.repo.listSchedules(user.id)[0]?.id ?? ""),
     destinationCalendarId: destination ? String(destination.id) : "",
     interval: "",
     bufferBefore: "0",
@@ -154,15 +188,17 @@ function intIn(value: string, min: number, max: number): number | null {
   return n >= min && n <= max ? n : null;
 }
 
-function validateEventType(deps: Deps, v: EventTypeValues, id: number | null): { input: EventTypeInput | null; errors: Errors<EventTypeValues> } {
+function validateEventType(c: Ctx, v: EventTypeValues, id: number | null): { input: EventTypeInput | null; errors: Errors<EventTypeValues> } {
+  const deps = c.get("deps");
+  const user = me(c);
   const errors: Errors<EventTypeValues> = {};
   if (!v.title) errors.title = "Indiquez un titre.";
   else if (v.title.length > 120) errors.title = "120 caractères au maximum.";
 
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(v.slug) || v.slug.length > 60) errors.slug = "Lettres minuscules, chiffres et tirets uniquement, 60 caractères au maximum.";
-  else if (RESERVED_SLUGS.has(v.slug)) errors.slug = "Cette adresse est réservée.";
+  if (!SLUG_PATTERN.test(v.slug) || v.slug.length > 60) errors.slug = "Lettres minuscules, chiffres et tirets uniquement, 60 caractères au maximum.";
+  else if (RESERVED_EVENT_SLUGS.has(v.slug)) errors.slug = "Cette adresse est réservée.";
   else {
-    const existing = deps.repo.getEventTypeBySlug(v.slug);
+    const existing = deps.repo.getEventTypeBySlug(user.id, v.slug);
     if (existing && existing.id !== id) errors.slug = "Cette adresse est déjà utilisée.";
   }
   if (v.description.length > 2000) errors.description = "2000 caractères au maximum.";
@@ -175,9 +211,11 @@ function validateEventType(deps: Deps, v: EventTypeValues, id: number | null): {
   } else if (v.locationValue.length > 300) errors.locationValue = "300 caractères au maximum.";
 
   const scheduleId = Number(v.scheduleId);
-  if (!deps.repo.getSchedule(scheduleId)) errors.scheduleId = "Choisissez un planning.";
+  if (deps.repo.getSchedule(scheduleId)?.userId !== user.id) errors.scheduleId = "Choisissez un planning.";
 
-  const destination = deps.repo.getCalendar(Number(v.destinationCalendarId));
+  // Seuls les agendas des comptes Google de la personne sont utilisables.
+  const calendars = new Map(deps.repo.listCalendars(user.id).map((cal) => [cal.id, cal]));
+  const destination = calendars.get(Number(v.destinationCalendarId));
   if (!destination || !isWritable(destination)) errors.destinationCalendarId = "Choisissez un agenda modifiable.";
 
   const interval = v.interval === "" ? null : intIn(v.interval, 5, 720);
@@ -194,7 +232,7 @@ function validateEventType(deps: Deps, v: EventTypeValues, id: number | null): {
   if (v.dailyLimit !== "" && dailyLimit === null) errors.dailyLimit = "Entre 1 et 100, ou vide.";
 
   const blocking = v.blocking.map(Number);
-  if (blocking.some((cid) => !deps.repo.getCalendar(cid))) errors.blocking = "Agenda inconnu.";
+  if (blocking.some((cid) => !calendars.has(cid))) errors.blocking = "Agenda inconnu.";
 
   if (Object.keys(errors).length > 0) return { input: null, errors };
   return {
@@ -267,9 +305,7 @@ function parseRanges(
   return { ranges, raw, error };
 }
 
-function scheduleValuesFrom(deps: Deps, id: number): ScheduleValues | null {
-  const s = deps.repo.getSchedule(id);
-  if (!s) return null;
+function scheduleValuesFrom(s: ScheduleDetail): ScheduleValues {
   const weekly: ScheduleValues["weekly"] = {};
   for (let d = 1; d <= 7; d++) {
     weekly[d] = (s.weekly[d] ?? []).map((r) => ({
@@ -331,26 +367,26 @@ export function adminRoutes(app: Hono<Env>): void {
     const when = c.req.query("vue") === "passees" ? "past" : "upcoming";
     const page = Math.max(1, Math.min(1000, Number(c.req.query("page")) || 1));
     const perPage = 50;
-    const list = deps.repo.listBookings({ when, limit: perPage + 1, offset: (page - 1) * perPage });
+    const list = deps.repo.listBookings(me(c).id, { when, limit: perPage + 1, offset: (page - 1) * perPage });
     const zones = new Map<number, string>();
     const zoneOf = (eventTypeId: number) => {
       if (!zones.has(eventTypeId)) {
         const et = deps.repo.getEventType(eventTypeId);
-        zones.set(eventTypeId, (et && deps.repo.getSchedule(et.scheduleId)?.timeZone) ?? adminZone(deps));
+        zones.set(eventTypeId, (et && deps.repo.getSchedule(et.scheduleId)?.timeZone) ?? adminZone(c));
       }
       return zones.get(eventTypeId)!;
     };
     const rows = list.slice(0, perPage).map((b) => ({ ...b, zone: zoneOf(b.eventTypeId) }));
-    const showZone = new Set(deps.repo.listSchedules().map((s) => s.timeZone)).size > 1;
+    const showZone = new Set(deps.repo.listSchedules(me(c).id).map((s) => s.timeZone)).size > 1;
     return c.html(<BookingsPage meta={adminMeta(c, "Réservations", "reservations")} when={when} rows={rows} page={page} hasMore={list.length > perPage} showZone={showZone} />);
   });
 
   const bookingDetail = (c: Ctx, id: number, error?: string) => {
     const deps = c.get("deps");
-    const booking = deps.repo.getBooking(id);
+    const booking = ownBooking(c, id);
     if (!booking || booking.status === "pending") return notFound(c);
     const et = deps.repo.getEventType(booking.eventTypeId);
-    const zone = (et && deps.repo.getSchedule(et.scheduleId)?.timeZone) ?? adminZone(deps);
+    const zone = (et && deps.repo.getSchedule(et.scheduleId)?.timeZone) ?? adminZone(c);
     return c.html(
       <BookingDetailPage
         meta={adminMeta(c, booking.inviteeName, "reservations")}
@@ -373,7 +409,7 @@ export function adminRoutes(app: Hono<Env>): void {
   admin.post("/reservations/:id/annuler", async (c) => {
     const id = idParam(c);
     const deps = c.get("deps");
-    const booking = id === null ? null : deps.repo.getBooking(id);
+    const booking = id === null ? null : ownBooking(c, id);
     if (!booking) return notFound(c);
     const body = await c.req.parseBody({ all: true });
     const reason = field(body, "motif").trim().slice(0, 500);
@@ -393,13 +429,14 @@ export function adminRoutes(app: Hono<Env>): void {
   // Types d'événements
   admin.get("/types", (c) => {
     const deps = c.get("deps");
-    const schedules = new Map(deps.repo.listSchedules().map((s) => [s.id, s.name]));
-    const items = deps.repo.listEventTypes().map((et) => ({ ...et, scheduleName: schedules.get(et.scheduleId) ?? "" }));
+    const user = me(c);
+    const schedules = new Map(deps.repo.listSchedules(user.id).map((s) => [s.id, s.name]));
+    const items = deps.repo.listEventTypes(user.id).map((et) => ({ ...et, scheduleName: schedules.get(et.scheduleId) ?? "" }));
     return c.html(
       <EventTypesPage
         meta={adminMeta(c, "Types d'événements", "types")}
         items={items}
-        hasCalendars={deps.repo.listCalendars().some(isWritable)}
+        hasCalendars={deps.repo.listCalendars(user.id).some(isWritable)}
         hasSchedules={schedules.size > 0}
         baseUrl={deps.config.baseUrl.toString()}
       />,
@@ -414,9 +451,9 @@ export function adminRoutes(app: Hono<Env>): void {
         id={id}
         values={values}
         errors={errors}
-        schedules={deps.repo.listSchedules()}
-        accounts={deps.repo.listAccounts()}
-        calendars={deps.repo.listCalendars()}
+        schedules={deps.repo.listSchedules(me(c).id)}
+        accounts={deps.repo.listAccounts(me(c).id)}
+        calendars={deps.repo.listCalendars(me(c).id)}
         baseUrl={deps.config.baseUrl.toString()}
         bookingCount={id === null ? 0 : deps.repo.countBookingsForEventType(id)}
       />,
@@ -426,44 +463,42 @@ export function adminRoutes(app: Hono<Env>): void {
 
   admin.get("/types/nouveau", (c) => {
     const deps = c.get("deps");
-    if (deps.repo.listSchedules().length === 0 || !deps.repo.listCalendars().some(isWritable)) return c.redirect("/admin/types", 302);
-    return renderEventType(c, null, defaultEventTypeValues(deps), {});
+    const user = me(c);
+    if (deps.repo.listSchedules(user.id).length === 0 || !deps.repo.listCalendars(user.id).some(isWritable)) return c.redirect("/admin/types", 302);
+    return renderEventType(c, null, defaultEventTypeValues(c), {});
   });
 
   admin.post("/types", async (c) => {
     const deps = c.get("deps");
     const values = readEventTypeForm(await c.req.parseBody({ all: true }));
-    const { input, errors } = validateEventType(deps, values, null);
+    const { input, errors } = validateEventType(c, values, null);
     if (!input) return renderEventType(c, null, values, errors, 400);
-    const id = deps.repo.saveEventType(null, input);
+    const id = deps.repo.saveEventType(me(c).id, null, input);
     deps.availability.invalidate();
     return c.redirect(`/admin/types/${id}?ok=cree`, 303);
   });
 
   admin.get("/types/:id", (c) => {
-    const id = idParam(c);
-    const et = id === null ? null : c.get("deps").repo.getEventType(id);
+    const et = ownEventType(c);
     if (!et) return notFound(c);
     return renderEventType(c, et.id, eventTypeValues(et), {});
   });
 
   admin.post("/types/:id", async (c) => {
     const deps = c.get("deps");
-    const id = idParam(c);
-    const et = id === null ? null : deps.repo.getEventType(id);
+    const et = ownEventType(c);
     if (!et) return notFound(c);
     const values = readEventTypeForm(await c.req.parseBody({ all: true }));
-    const { input, errors } = validateEventType(deps, values, et.id);
+    const { input, errors } = validateEventType(c, values, et.id);
     if (!input) return renderEventType(c, et.id, values, errors, 400);
-    deps.repo.saveEventType(et.id, input);
+    deps.repo.saveEventType(me(c).id, et.id, input);
     deps.availability.invalidate();
     return c.redirect(`/admin/types/${et.id}?ok=enregistre`, 303);
   });
 
   admin.post("/types/:id/supprimer", (c) => {
     const deps = c.get("deps");
-    const id = idParam(c);
-    const et = id === null ? null : deps.repo.getEventType(id);
+    const et = ownEventType(c);
     if (!et) return notFound(c);
     if (deps.repo.countBookingsForEventType(et.id) > 0) return c.redirect(`/admin/types/${et.id}`, 303);
     deps.repo.deleteEventType(et.id);
@@ -473,7 +508,7 @@ export function adminRoutes(app: Hono<Env>): void {
   // Plannings
   admin.get("/disponibilites", (c) => {
     const deps = c.get("deps");
-    const items = deps.repo.listSchedules().map((schedule) => ({
+    const items = deps.repo.listSchedules(me(c).id).map((schedule) => ({
       schedule,
       weekly: deps.repo.getSchedule(schedule.id)!.weekly,
       usage: deps.repo.eventTypesUsingSchedule(schedule.id).length,
@@ -486,7 +521,7 @@ export function adminRoutes(app: Hono<Env>): void {
     const two = (start: string, end: string) => [{ start, end, count: "2" }];
     return renderSchedule(c, null, {
       name: "",
-      timeZone: adminZone(c.get("deps")),
+      timeZone: adminZone(c),
       weekly: { 1: two("13:00", "15:00"), 2: two("09:00", "11:00"), 3: [], 4: two("09:00", "11:00"), 5: [], 6: [], 7: [] },
     }, {});
   });
@@ -509,7 +544,7 @@ export function adminRoutes(app: Hono<Env>): void {
     if (!isValidZone(values.timeZone)) errors.timeZone = "Fuseau inconnu.";
     if (Object.keys(dayErrors).length > 0) errors.days = dayErrors;
     if (errors.name || errors.timeZone || errors.days) return renderSchedule(c, id, values, errors, {}, 400);
-    const savedId = deps.repo.saveSchedule(id, { name: values.name, timeZone: values.timeZone, weekly });
+    const savedId = deps.repo.saveSchedule(me(c).id, id, { name: values.name, timeZone: values.timeZone, weekly });
     deps.availability.invalidate();
     return c.redirect(`/admin/disponibilites/${savedId}?ok=${id === null ? "cree" : "enregistre"}`, 303);
   };
@@ -517,23 +552,23 @@ export function adminRoutes(app: Hono<Env>): void {
   admin.post("/disponibilites", (c) => saveSchedule(c, null));
 
   admin.get("/disponibilites/:id", (c) => {
-    const id = idParam(c);
-    const values = id === null ? null : scheduleValuesFrom(c.get("deps"), id);
-    if (!values || id === null) return notFound(c);
-    return renderSchedule(c, id, values, {});
+    const schedule = ownSchedule(c);
+    if (!schedule) return notFound(c);
+    return renderSchedule(c, schedule.id, scheduleValuesFrom(schedule), {});
   });
 
   admin.post("/disponibilites/:id", (c) => {
-    const id = idParam(c);
-    if (id === null || !c.get("deps").repo.getSchedule(id)) return notFound(c);
-    return saveSchedule(c, id);
+    const schedule = ownSchedule(c);
+    if (!schedule) return notFound(c);
+    return saveSchedule(c, schedule.id);
   });
 
   admin.post("/disponibilites/:id/exceptions", async (c) => {
     const deps = c.get("deps");
-    const id = idParam(c);
-    const values = id === null ? null : scheduleValuesFrom(deps, id);
-    if (!values || id === null) return notFound(c);
+    const schedule = ownSchedule(c);
+    if (!schedule) return notFound(c);
+    const id = schedule.id;
+    const values = scheduleValuesFrom(schedule);
     const body = await c.req.parseBody({ all: true });
     const date = field(body, "date");
     const mode = field(body, "mode") === "hours" ? "hours" : "off";
@@ -556,9 +591,10 @@ export function adminRoutes(app: Hono<Env>): void {
 
   admin.post("/disponibilites/:id/exceptions/:date/supprimer", (c) => {
     const deps = c.get("deps");
-    const id = idParam(c);
+    const schedule = ownSchedule(c);
     const date = c.req.param("date") ?? "";
-    if (id === null || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return notFound(c);
+    if (!schedule || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return notFound(c);
+    const id = schedule.id;
     deps.repo.deleteOverride(id, date);
     deps.availability.invalidate();
     return c.redirect(`/admin/disponibilites/${id}?ok=supprime`, 303);
@@ -566,8 +602,8 @@ export function adminRoutes(app: Hono<Env>): void {
 
   admin.post("/disponibilites/:id/supprimer", (c) => {
     const deps = c.get("deps");
-    const id = idParam(c);
-    if (id === null || !deps.repo.getSchedule(id)) return notFound(c);
+    const id = ownSchedule(c)?.id ?? null;
+    if (id === null) return notFound(c);
     if (deps.repo.eventTypesUsingSchedule(id).length > 0) return c.redirect(`/admin/disponibilites/${id}`, 303);
     deps.repo.deleteSchedule(id);
     return c.redirect("/admin/disponibilites?ok=supprime", 303);
@@ -576,25 +612,25 @@ export function adminRoutes(app: Hono<Env>): void {
   // Agendas
   admin.get("/agendas", (c) => {
     const deps = c.get("deps");
-    const accounts = deps.repo.listAccounts();
+    const accounts = deps.repo.listAccounts(me(c).id);
     const usage = new Map(accounts.map((a) => [a.id, deps.repo.eventTypesUsingAccount(a.id)]));
     const code = c.req.query("erreur");
     return c.html(
       <CalendarsPage
         meta={adminMeta(c, "Agendas", "agendas")}
         accounts={accounts}
-        calendars={deps.repo.listCalendars()}
+        calendars={deps.repo.listCalendars(me(c).id)}
         usage={usage}
         error={code ? CONNECT_ERRORS[code] : undefined}
-        zone={adminZone(deps)}
+        zone={adminZone(c)}
       />,
     );
   });
 
   admin.post("/agendas/:id/actualiser", async (c) => {
     const deps = c.get("deps");
-    const id = idParam(c);
-    if (id === null || !deps.repo.getAccount(id)) return notFound(c);
+    const id = ownAccount(c)?.id ?? null;
+    if (id === null) return notFound(c);
     try {
       await deps.accounts.sync(id);
     } catch (err) {
@@ -607,8 +643,8 @@ export function adminRoutes(app: Hono<Env>): void {
 
   admin.post("/agendas/:id/retirer", async (c) => {
     const deps = c.get("deps");
-    const id = idParam(c);
-    if (id === null || !deps.repo.getAccount(id)) return notFound(c);
+    const id = ownAccount(c)?.id ?? null;
+    if (id === null) return notFound(c);
     if (deps.repo.eventTypesUsingAccount(id).length > 0) return c.redirect("/admin/agendas", 303);
     await deps.accounts.remove(id);
     deps.availability.invalidate();
@@ -618,17 +654,17 @@ export function adminRoutes(app: Hono<Env>): void {
   // Signature de mail
   const renderSignature = (c: Ctx, form?: { eventTypeId: string; maxSlots: string; error: string }) => {
     const deps = c.get("deps");
-    const settings = deps.repo.getSettings();
-    const eventTypes = deps.repo.listEventTypes().filter((et) => et.active);
-    const configured = eventTypes.find((et) => et.id === settings.signatureEventTypeId) ?? null;
+    const user = me(c);
+    const eventTypes = deps.repo.listEventTypes(user.id).filter((et) => et.active);
+    const configured = eventTypes.find((et) => et.id === user.signatureEventTypeId) ?? null;
     return c.html(
       <SignaturePage
         meta={adminMeta(c, "Signature de mail", "signature")}
         eventTypes={eventTypes}
         eventTypeId={form?.eventTypeId ?? String(configured?.id ?? eventTypes[0]?.id ?? "")}
-        maxSlots={form?.maxSlots ?? String(settings.signatureMaxSlots)}
+        maxSlots={form?.maxSlots ?? String(user.signatureMaxSlots)}
         error={form?.error}
-        html={configured ? signatureHtml({ baseUrl: deps.config.baseUrl, slug: configured.slug, accent: settings.accentColor }) : null}
+        html={configured ? signatureHtml({ baseUrl: deps.config.baseUrl, hostSlug: user.slug, slug: configured.slug, accent: user.accentColor }) : null}
       />,
       form ? 400 : 200,
     );
@@ -641,40 +677,41 @@ export function adminRoutes(app: Hono<Env>): void {
     const body = await c.req.parseBody({ all: true });
     const eventTypeId = field(body, "eventTypeId");
     const maxSlots = field(body, "maxSlots");
+    const user = me(c);
     const et = deps.repo.getEventType(Number(eventTypeId));
     const max = intIn(maxSlots, 1, 4);
-    if (!et || !et.active || max === null) {
+    if (!et || et.userId !== user.id || !et.active || max === null) {
       return renderSignature(c, { eventTypeId, maxSlots, error: "Choisissez un type d'événement actif et un nombre de créneaux entre 1 et 4." });
     }
-    deps.repo.updateSignature({ eventTypeId: et.id, maxSlots: max });
+    deps.repo.updateSignature(user.id, { eventTypeId: et.id, maxSlots: max });
     return c.redirect("/admin/signature?ok=enregistre", 303);
   });
 
   // Aperçu isolé dans un cadre : le bloc utilise des styles en ligne, interdits par la politique des pages de l'admin.
   admin.get("/signature/apercu", (c) => {
     const deps = c.get("deps");
-    const settings = deps.repo.getSettings();
-    const et = settings.signatureEventTypeId === null ? null : deps.repo.getEventType(settings.signatureEventTypeId);
-    if (!et) return c.body(null, 404);
-    const name = settings.displayName.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+    const user = me(c);
+    const et = user.signatureEventTypeId === null ? null : deps.repo.getEventType(user.signatureEventTypeId);
+    if (!et || et.userId !== user.id) return c.body(null, 404);
+    const name = user.displayName.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
     c.header("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'self'; frame-ancestors 'self'");
     c.header("X-Frame-Options", "SAMEORIGIN");
     return c.html(
       `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><base target="_blank"><title>Aperçu</title></head>` +
         `<body style="margin:16px;background:#ffffff;color:#171716;font-family:'IBM Plex Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:14px;">` +
         (name ? `<p style="margin:0;">${name}</p>` : "") +
-        signatureHtml({ baseUrl: deps.config.baseUrl, slug: et.slug, accent: settings.accentColor }) +
+        signatureHtml({ baseUrl: deps.config.baseUrl, hostSlug: user.slug, slug: et.slug, accent: user.accentColor }) +
         `</body></html>`,
     );
   });
 
   // Réglages
   const renderSettings = (c: Ctx, values: SettingsValues, errors: Errors<SettingsValues> & { avatar?: string }, status: 200 | 400 = 200) =>
-    c.html(<SettingsPage meta={adminMeta(c, "Réglages", "reglages")} values={values} errors={errors} />, status);
+    c.html(<SettingsPage meta={adminMeta(c, "Réglages", "reglages")} values={values} errors={errors} baseUrl={c.get("deps").config.baseUrl.toString()} />, status);
 
   admin.get("/reglages", (c) => {
-    const s = c.get("deps").repo.getSettings();
-    return renderSettings(c, { displayName: s.displayName, accentColor: s.accentColor }, {});
+    const user = me(c);
+    return renderSettings(c, { displayName: user.displayName, accentColor: user.accentColor, slug: user.slug }, {});
   });
 
   admin.post(
@@ -682,10 +719,18 @@ export function adminRoutes(app: Hono<Env>): void {
     bodyLimit({ maxSize: 2 * MAX_AVATAR, onError: (c) => c.text("Fichier trop volumineux", 413) }),
     async (c) => {
       const deps = c.get("deps");
+      const user = me(c);
       const body = await c.req.parseBody({ all: true });
-      const values: SettingsValues = { displayName: field(body, "displayName").trim(), accentColor: field(body, "accentColor").trim().toLowerCase() };
+      const values: SettingsValues = {
+        displayName: field(body, "displayName").trim(),
+        accentColor: field(body, "accentColor").trim().toLowerCase(),
+        slug: field(body, "slug").trim().toLowerCase(),
+      };
       const errors: Errors<SettingsValues> & { avatar?: string } = {};
       if (values.displayName.length > 80) errors.displayName = "80 caractères au maximum.";
+      if (!SLUG_PATTERN.test(values.slug) || values.slug.length > 40) errors.slug = "Lettres minuscules, chiffres et tirets uniquement, 40 caractères au maximum.";
+      else if (RESERVED_USER_SLUGS.has(values.slug)) errors.slug = "Cette adresse est réservée.";
+      else if ((deps.repo.getUserBySlug(values.slug)?.id ?? user.id) !== user.id) errors.slug = "Cette adresse est déjà prise.";
       if (!isHexColor(values.accentColor)) errors.accentColor = "Format attendu : #RRGGBB.";
       else {
         const ratio = contrast(values.accentColor, "#ffffff");
@@ -703,9 +748,9 @@ export function adminRoutes(app: Hono<Env>): void {
         }
       }
       if (Object.keys(errors).length > 0) return renderSettings(c, values, errors, 400);
-      deps.repo.updateSettings(values);
-      if (avatar) deps.repo.setAvatar(avatar.data, avatar.type);
-      else if (field(body, "removeAvatar") === "1") deps.repo.setAvatar(null, null);
+      deps.repo.updateProfile(user.id, values);
+      if (avatar) deps.repo.setAvatar(user.id, avatar.data, avatar.type);
+      else if (field(body, "removeAvatar") === "1") deps.repo.setAvatar(user.id, null, null);
       return c.redirect("/admin/reglages?ok=enregistre", 303);
     },
   );

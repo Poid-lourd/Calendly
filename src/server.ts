@@ -43,7 +43,8 @@ async function main(): Promise<void> {
   setLogLevel(config.logLevel);
   for (const w of config.warnings) log.warn(w);
 
-  const db = openDatabase(config.databasePath);
+  // Une installation antérieure aux espaces par personne est rattachée à la première adresse de ADMIN_EMAILS.
+  const db = openDatabase(config.databasePath, { owner: config.adminEmails[0] ?? null });
   const now = () => Date.now();
   const repo = new Repo(db, now);
   const mock = config.provider === "mock" ? new MockProvider(db) : null;
@@ -53,7 +54,8 @@ async function main(): Promise<void> {
   const bookings = new Bookings(repo, accounts, availability, config.baseUrl, now);
   const limiter = new RateLimiter(now);
 
-  if (config.demoSeed && (await seedDemo(repo, accounts))) log.info("données de démonstration créées");
+  const demoOwner = config.adminEmails[0];
+  if (config.demoSeed && demoOwner && (await seedDemo(repo, accounts, demoOwner))) log.info("données de démonstration créées", { owner: demoOwner });
   await bookings.recover();
   repo.purgeExpired();
 

@@ -11,7 +11,8 @@ services:
     environment:
       CALENDAR_PROVIDER: ${CALENDAR_PROVIDER:-google}
       BASE_URL: ${BASE_URL:?BASE_URL est requis, par exemple https://rdv.exemple.fr}
-      ADMIN_EMAILS: ${ADMIN_EMAILS:?ADMIN_EMAILS est requis}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      ADMIN_DOMAINS: ${ADMIN_DOMAINS:-}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}

@@ -1,11 +1,11 @@
 # Rendez-vous
 
-Prise de rendez-vous auto-hébergée et mono-utilisateur, adossée à Google Agenda.
+Prise de rendez-vous auto-hébergée, adossée à Google Agenda. Chaque personne autorisée a son propre espace : sa page, ses agendas, ses plannings et ses types de rendez-vous.
 
-- Pages publiques : liste des types de rendez-vous, puis jour, horaire, coordonnées et confirmation.
+- Pages publiques : liste des personnes, page de chaque personne (`/son-nom`) avec ses types de rendez-vous, puis jour, horaire, coordonnées et confirmation (`/son-nom/type`).
 - Disponibilités calculées depuis Google Agenda (freebusy), sur plusieurs comptes et agendas, partagés compris.
 - Chaque réservation crée un événement Google avec l'invité, un lien Meet si besoin, et les liens d'annulation et de reprogrammation. Les notifications sont envoyées par Google, sans serveur de messagerie.
-- Administration sur `/admin` : comptes et agendas, plannings, types d'événements, réservations, réglages.
+- Administration sur `/admin` : chaque personne n'y voit que son espace (comptes et agendas, plannings, types d'événements, réservations, signature, réglages).
 
 Un seul service Node.js, SQLite sur un volume, Caddy pour le HTTPS. Les choix techniques sont détaillés dans [DECISIONS.md](DECISIONS.md), l'architecture dans [PLAN.md](PLAN.md).
 
@@ -30,7 +30,7 @@ npm run dev:mock     # http://localhost:3000, admin@exemple.test
 
 ## Configurer Google Cloud
 
-Une seule fois, avec le compte Google qui administrera l'application.
+Une seule fois, avec le compte Google qui administrera l'application. Le même client OAuth sert à tout le monde : chaque personne se connecte ensuite avec son propre compte.
 
 1. **Projet**. Ouvrir <https://console.cloud.google.com>, créer un projet (par exemple « Rendez-vous »).
 2. **API Google Calendar**. Menu *API et services* → *Bibliothèque* → rechercher « Google Calendar API » → *Activer*.
@@ -68,6 +68,12 @@ Dans `/admin/agendas`, *Connecter un compte Google* :
 - Sinon, connectez les deux comptes l'un après l'autre. Chacun garde son propre jeton.
 
 Créez ensuite un planning dans *Disponibilités*, puis un type d'événement en choisissant l'agenda de destination (où l'événement est créé) et les agendas bloquants.
+
+### Plusieurs personnes
+
+Toute adresse listée dans `ADMIN_EMAILS`, ou d'un domaine listé dans `ADMIN_DOMAINS` (par exemple `ADMIN_DOMAINS=exemple.fr`), peut se connecter à `/admin`. Son espace est créé à la première connexion, avec une page à l'adresse tirée de son email (`prenom.nom@exemple.fr` donne `/prenom-nom`, modifiable dans *Réglages*). Chacun connecte son propre compte Google : un compte déjà connecté par une autre personne est refusé. Les agendas partagés restent utilisables par tous, chacun via son compte.
+
+Tant que l'application OAuth n'est pas validée par Google, chaque personne voit l'avertissement « application non validée » à la connexion de ses agendas, et le nombre d'utilisateurs est limité à 100.
 
 Chaque plage du planning accepte un nombre de créneaux. Exemple : lundi 13:00–15:00, 2 créneaux. Le site ne propose alors que deux rendez-vous dans la plage, choisis parmi les horaires libres des agendas bloquants et espacés au mieux (13:00 et 14:00 si tout est libre). Une réservation en consomme un. Sans nombre, tous les horaires libres de la plage sont proposés.
 
@@ -188,7 +194,8 @@ Toutes sont décrites dans [.env.example](.env.example).
 | `CALENDAR_PROVIDER` | `google` ou `mock` |
 | `DOMAIN` | domaine servi par Caddy |
 | `BASE_URL` | URL publique, par défaut `https://DOMAIN` |
-| `ADMIN_EMAILS` | adresses autorisées sur `/admin` |
+| `ADMIN_EMAILS` | adresses autorisées sur `/admin`, chacune avec son espace ; la première reçoit les données d'une installation antérieure |
+| `ADMIN_DOMAINS` | domaines dont toutes les adresses sont autorisées sur `/admin` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | client OAuth Google |
 | `ENCRYPTION_KEY` | clé de chiffrement des refresh tokens (32 octets, base64) |
 | `DEMO_SEED` | données de démonstration en mode simulé |
@@ -230,7 +237,7 @@ Chaque écran, états vides, de chargement et d'erreur compris, en 390 px et 144
 
 ## Limites connues
 
-- Mono-utilisateur : une seule personne reçoit les rendez-vous, même si plusieurs adresses peuvent administrer.
+- Pas d'écran de gestion des personnes : retirer une adresse de `ADMIN_EMAILS` ou `ADMIN_DOMAINS` coupe son accès à l'admin, mais sa page publique reste en ligne.
 - Un seul processus applicatif : la limitation de débit et le cache de disponibilités (30 secondes) sont en mémoire.
 - Lors d'une reprogrammation, la période de l'événement actuel est retirée des occupations Google uniquement si freebusy la renvoie telle quelle ; si elle est fusionnée avec un autre événement contigu, l'ancienne plage reste bloquée.
 - Les agendas partagés n'apparaissent que s'ils figurent dans la liste d'agendas du compte Google.

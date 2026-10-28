@@ -17,7 +17,9 @@ async function audit(page: Page, label: string): Promise<void> {
 test("pages publiques", async ({ page }) => {
   await page.goto(`${BASE}/`);
   await audit(page, "accueil");
-  await page.goto(`${BASE}/echange-30-min`);
+  await page.goto(`${BASE}/camille-martin`);
+  await audit(page, "page de la personne");
+  await page.goto(`${BASE}/camille-martin/echange-30-min`);
   await audit(page, "calendrier");
   await openFirstAvailableDay(page);
   await audit(page, "horaires");
@@ -36,7 +38,7 @@ test("pages publiques", async ({ page }) => {
   await audit(page, "reprogrammation");
   await page.goto(`${BASE}/inexistant`);
   await audit(page, "404");
-  await page.goto(`${BASE}/creneaux`);
+  await page.goto(`${BASE}/camille-martin/creneaux`);
   await audit(page, "créneaux de la signature");
 });
 

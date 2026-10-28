@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { SlotUnavailableError } from "../../src/domain/bookings.js";
-import { createContext, firstSlots } from "../helpers.js";
+import { createContext, eventType, firstSlots } from "../helpers.js";
 
 const invitee = (i: number) => ({ name: `Invité ${i}`, email: `invite${i}@exemple.fr`, note: "", timeZone: "Europe/Paris" });
 
@@ -18,7 +18,7 @@ describe("aucune double réservation", () => {
   it("25 demandes simultanées sur le même créneau : une seule aboutit", async () => {
     // La latence simulée de l'agenda force l'entrelacement des requêtes entre la vérification et l'écriture.
     const ctx = await createContext({ latencyMs: 20 });
-    const et = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(ctx, "echange-30-min");
     const [start] = await firstSlots(ctx, et.slug);
     const results = await Promise.allSettled(
       Array.from({ length: 25 }, (_, i) => ctx.bookings.create({ eventType: et, start: start!, ...invitee(i) })),
@@ -33,9 +33,9 @@ describe("aucune double réservation", () => {
 
   it("créneaux qui se chevauchent sans être identiques : une seule aboutit", async () => {
     const ctx = await createContext({ latencyMs: 20 });
-    const base = ctx.repo.getEventTypeBySlug("point-projet")!;
-    ctx.repo.saveEventType(base.id, { ...base, slotIntervalMinutes: 15, dailyLimit: null });
-    const et = ctx.repo.getEventTypeBySlug("point-projet")!;
+    const base = eventType(ctx, "point-projet");
+    ctx.repo.saveEventType(base.userId, base.id, { ...base, slotIntervalMinutes: 15, dailyLimit: null });
+    const et = eventType(ctx, "point-projet");
     const slots = await firstSlots(ctx, et.slug);
     const start = slots.find((s) => slots.includes(s + 15 * 60_000) && slots.includes(s + 30 * 60_000))!;
     const starts = [start, start + 15 * 60_000, start + 30 * 60_000];
@@ -48,8 +48,8 @@ describe("aucune double réservation", () => {
 
   it("deux types d'événements partageant un agenda : une seule aboutit", async () => {
     const ctx = await createContext({ latencyMs: 20 });
-    const a = ctx.repo.getEventTypeBySlug("point-projet")!;
-    const b = ctx.repo.getEventTypeBySlug("echange-30-min")!;
+    const a = eventType(ctx, "point-projet");
+    const b = eventType(ctx, "echange-30-min");
     const slotsA = await firstSlots(ctx, a.slug);
     const slotsB = new Set(await firstSlots(ctx, b.slug));
     const start = slotsA.find((s) => slotsB.has(s))!;
@@ -64,7 +64,7 @@ describe("aucune double réservation", () => {
     const clock = { now: Date.parse("2027-01-04T07:00:00Z") };
     const first = await createContext({ file, latencyMs: 20, clock });
     const second = await createContext({ file, latencyMs: 20, clock, seed: false });
-    const et = first.repo.getEventTypeBySlug("echange-30-min")!;
+    const et = eventType(first, "echange-30-min");
     const [start] = await firstSlots(first, et.slug);
     const results = await Promise.allSettled(
       Array.from({ length: 20 }, (_, i) =>

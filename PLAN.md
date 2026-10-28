@@ -1,6 +1,6 @@
 # Plan
 
-Alternative à Calendly auto-hébergée, mono-utilisateur, un seul service Node.js avec SQLite.
+Alternative à Calendly auto-hébergée, un espace par personne autorisée, un seul service Node.js avec SQLite.
 
 ## Architecture
 
@@ -26,15 +26,15 @@ navigateur ──HTTPS──> Caddy ──HTTP──> app (Node 22, Hono, rendu 
 
 | Table | Rôle |
 |---|---|
-| `settings` | ligne unique. nom affiché, photo (blob), couleur d'accent |
+| `users` | personne autorisée : email de connexion, adresse de page (unique), nom affiché, photo (blob), couleur d'accent, signature |
 | `admin_sessions` | sessions admin (hash du jeton, email, expiration) |
 | `oauth_states` | state, code_verifier PKCE, but (`login` ou `connect`), expiration |
-| `google_accounts` | email, sub, refresh token chiffré, scopes, statut (`connected`, `disconnected`), dernière erreur |
+| `google_accounts` | personne, email, sub (unique), refresh token chiffré, scopes, statut (`connected`, `disconnected`), dernière erreur |
 | `calendars` | agendas de chaque compte (id Google, nom, fuseau, rôle d'accès, principal) |
-| `schedules` | plannings, nom, fuseau |
-| `schedule_rules` | plages hebdomadaires (jour ISO, minute début, minute fin), plusieurs par jour |
+| `schedules` | plannings, personne, nom, fuseau |
+| `schedule_rules` | plages hebdomadaires (jour ISO, minute début, minute fin, nombre de créneaux facultatif), plusieurs par jour |
 | `schedule_overrides` | exceptions par date. une ligne sans horaires = journée indisponible |
-| `event_types` | slug, titre, description, durée, lieu, planning, agenda de destination, intervalle, tampons, préavis, horizon, plafond quotidien, visibilité, actif |
+| `event_types` | personne, slug (unique par personne), titre, description, durée, lieu, planning, agenda de destination, intervalle, tampons, préavis, horizon, plafond quotidien, visibilité, actif |
 | `event_type_calendars` | agendas bloquants d'un type d'événement |
 | `bookings` | créneau (UTC, ms), invité, note, fuseau invité, statut (`pending`, `confirmed`, `cancelled`), hash du jeton, id et agenda de l'événement Google, lien Meet |
 | `mock_events` | événements du fournisseur simulé |

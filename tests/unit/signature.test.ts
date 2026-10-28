@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { pickSpread, selectSignatureSlots } from "../../src/domain/signature.js";
 import { woffToSfnt } from "../../src/lib/woff.js";
 import { SignatureRenderer, signatureHtml, signatureSvg } from "../../src/web/signature.js";
-import { createContext, fontFiles } from "../helpers.js";
+import { createContext, demoUser, fontFiles } from "../helpers.js";
 
 const PARIS = "Europe/Paris";
 const at = (iso: string) => DateTime.fromISO(iso, { zone: PARIS }).toMillis();
@@ -53,28 +53,28 @@ describe("choix des créneaux de la signature", () => {
 describe("sélection selon la semaine", () => {
   it("semaine en cours, puis semaine suivante quand elle est vide", async () => {
     const ctx = await createContext({ clock: { now: at("2027-01-04T08:00") } });
-    const current = await selectSignatureSlots(ctx.repo, ctx.availability, ctx.clock.now);
+    const current = await selectSignatureSlots(ctx.repo, ctx.availability, demoUser(ctx), ctx.clock.now);
     expect(current.status).toBe("ok");
     expect(current.week).toBe("current");
     expect(current.slots.length).toBe(3);
     expect(current.slots.every((s) => s < at("2027-01-11T00:00"))).toBe(true);
 
     ctx.clock.now = at("2027-01-09T10:00");
-    const weekend = await selectSignatureSlots(ctx.repo, ctx.availability, ctx.clock.now);
+    const weekend = await selectSignatureSlots(ctx.repo, ctx.availability, demoUser(ctx), ctx.clock.now);
     expect(weekend.week).toBe("next");
     expect(weekend.slots.every((s) => s >= at("2027-01-11T00:00") && s < at("2027-01-18T00:00"))).toBe(true);
   });
 
   it("désactivée sans type d'événement actif", async () => {
     const ctx = await createContext();
-    ctx.repo.updateSignature({ eventTypeId: null, maxSlots: 3 });
-    expect((await selectSignatureSlots(ctx.repo, ctx.availability, ctx.clock.now)).status).toBe("disabled");
+    ctx.repo.updateSignature(demoUser(ctx).id, { eventTypeId: null, maxSlots: 3 });
+    expect((await selectSignatureSlots(ctx.repo, ctx.availability, demoUser(ctx), ctx.clock.now)).status).toBe("disabled");
   });
 
   it("indisponible si le compte Google est déconnecté", async () => {
     const ctx = await createContext();
-    ctx.repo.markAccountDisconnected(ctx.repo.listAccounts()[0]!.id, "invalid_grant");
-    expect((await selectSignatureSlots(ctx.repo, ctx.availability, ctx.clock.now)).status).toBe("unavailable");
+    ctx.repo.markAccountDisconnected(ctx.repo.listAccounts(demoUser(ctx).id)[0]!.id, "invalid_grant");
+    expect((await selectSignatureSlots(ctx.repo, ctx.availability, demoUser(ctx), ctx.clock.now)).status).toBe("unavailable");
   });
 });
 
@@ -110,10 +110,10 @@ describe("image et bloc HTML", () => {
   });
 
   it("bloc HTML compatible messagerie, URL absolues", () => {
-    const html = signatureHtml({ baseUrl: new URL("https://rdv.exemple.fr"), slug: "echange-30-min", accent: "#0d6b52" });
-    expect(html).toContain('href="https://rdv.exemple.fr/creneaux"');
-    expect(html).toContain('src="https://rdv.exemple.fr/signature.png"');
-    expect(html).toContain('href="https://rdv.exemple.fr/echange-30-min"');
+    const html = signatureHtml({ baseUrl: new URL("https://rdv.exemple.fr"), hostSlug: "camille-martin", slug: "echange-30-min", accent: "#0d6b52" });
+    expect(html).toContain('href="https://rdv.exemple.fr/camille-martin/creneaux"');
+    expect(html).toContain('src="https://rdv.exemple.fr/camille-martin/signature.png"');
+    expect(html).toContain('href="https://rdv.exemple.fr/camille-martin/echange-30-min"');
     expect(html).toContain("<table");
     expect(html).not.toMatch(/<style|<script|class=/);
   });

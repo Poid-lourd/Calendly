@@ -4,18 +4,20 @@ import { MOCK_COMPANY_CALENDAR } from "./providers/mock.js";
 
 const H = (h: number, m = 0) => h * 60 + m;
 
-// Données de démonstration pour le mode simulé : un compte connecté, un planning, trois types d'événements, la signature.
-export async function seedDemo(repo: Repo, accounts: Accounts, email = "moi@exemple.test"): Promise<boolean> {
+// Données de démonstration pour le mode simulé, dans l'espace de owner (adresse de connexion à l'admin) :
+// un compte Google connecté, un planning, trois types d'événements, la signature.
+export async function seedDemo(repo: Repo, accounts: Accounts, owner: string, email = "moi@exemple.test"): Promise<boolean> {
   if (accounts.provider.kind !== "mock") throw new Error("Données de démonstration réservées au mode simulé");
-  if (repo.listEventTypes().length > 0 || repo.listAccounts().length > 0) return false;
+  if (repo.getUserByEmail(owner)) return false;
 
-  repo.updateSettings({ displayName: "Camille Martin", accentColor: repo.getSettings().accentColor });
-  const account = await accounts.connect({
+  const user = repo.ensureUser(owner);
+  repo.updateProfile(user.id, { displayName: "Camille Martin", accentColor: user.accentColor, slug: "camille-martin" });
+  const account = await accounts.connect(user.id, {
     identity: { subject: `mock-${email}`, email, emailVerified: true },
     refreshToken: `mock-refresh:${email}`,
     scopes: accounts.provider.connectScopes,
   });
-  const calendars = repo.listCalendars().filter((c) => c.accountId === account.id);
+  const calendars = repo.listCalendars(user.id).filter((c) => c.accountId === account.id);
   const personal = calendars.find((c) => c.isPrimary)!;
   const company = calendars.find((c) => c.externalId === MOCK_COMPANY_CALENDAR)!;
 
@@ -23,7 +25,7 @@ export async function seedDemo(repo: Repo, accounts: Accounts, email = "moi@exem
     { start: H(9), end: H(12) },
     { start: H(14), end: H(18) },
   ];
-  const scheduleId = repo.saveSchedule(null, {
+  const scheduleId = repo.saveSchedule(user.id, null, {
     name: "Horaires de bureau",
     timeZone: "Europe/Paris",
     weekly: { 1: office, 2: office, 3: office, 4: office, 5: [{ start: H(9), end: H(12) }, { start: H(14), end: H(17) }], 6: [], 7: [] },
@@ -39,7 +41,7 @@ export async function seedDemo(repo: Repo, accounts: Accounts, email = "moi@exem
     dailyLimit: null,
     active: true,
   };
-  const echangeId = repo.saveEventType(null, {
+  const echangeId = repo.saveEventType(user.id, null, {
     ...common,
     slug: "echange-30-min",
     title: "Échange de 30 minutes",
@@ -52,7 +54,7 @@ export async function seedDemo(repo: Repo, accounts: Accounts, email = "moi@exem
     visibility: "public",
     blockingCalendarIds: [personal.id, company.id],
   });
-  repo.saveEventType(null, {
+  repo.saveEventType(user.id, null, {
     ...common,
     slug: "point-projet",
     title: "Point projet",
@@ -69,7 +71,7 @@ export async function seedDemo(repo: Repo, accounts: Accounts, email = "moi@exem
     visibility: "public",
     blockingCalendarIds: [personal.id, company.id],
   });
-  repo.saveEventType(null, {
+  repo.saveEventType(user.id, null, {
     ...common,
     slug: "appel",
     title: "Appel téléphonique",
@@ -82,6 +84,6 @@ export async function seedDemo(repo: Repo, accounts: Accounts, email = "moi@exem
     visibility: "unlisted",
     blockingCalendarIds: [personal.id],
   });
-  repo.updateSignature({ eventTypeId: echangeId, maxSlots: 3 });
+  repo.updateSignature(user.id, { eventTypeId: echangeId, maxSlots: 3 });
   return true;
 }

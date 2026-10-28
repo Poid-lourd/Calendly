@@ -1,3 +1,4 @@
+import { RESERVED_USER_SLUGS, slugFromEmail } from "../lib/slug.js";
 import type { DB } from "./index.js";
 import type {
   Booking,
@@ -9,7 +10,7 @@ import type {
   MinuteRange,
   Schedule,
   ScheduleDetail,
-  Settings,
+  User,
   Visibility,
 } from "./types.js";
 
@@ -20,9 +21,27 @@ const str = (v: unknown): string => v as string;
 const nnum = (v: unknown): number | null => (v === null || v === undefined ? null : (v as number));
 const nstr = (v: unknown): string | null => (v === null || v === undefined ? null : (v as string));
 
+const USER_COLUMNS = `id, email, slug, display_name, accent_color, avatar IS NOT NULL AS has_avatar, avatar_updated_at,
+  signature_event_type_id, signature_max_slots`;
+
+function toUser(r: Row): User {
+  return {
+    id: num(r.id),
+    email: str(r.email),
+    slug: str(r.slug),
+    displayName: str(r.display_name),
+    accentColor: str(r.accent_color),
+    hasAvatar: r.has_avatar === 1,
+    avatarUpdatedAt: nnum(r.avatar_updated_at),
+    signatureEventTypeId: nnum(r.signature_event_type_id),
+    signatureMaxSlots: num(r.signature_max_slots),
+  };
+}
+
 function toAccount(r: Row): GoogleAccount {
   return {
     id: num(r.id),
+    userId: num(r.user_id),
     subject: str(r.subject),
     email: str(r.email),
     refreshTokenEnc: nstr(r.refresh_token_enc),
@@ -55,6 +74,7 @@ function toCalendar(r: Row): Calendar {
 function toEventType(r: Row, blocking: number[]): EventType {
   return {
     id: num(r.id),
+    userId: num(r.user_id),
     slug: str(r.slug),
     title: str(r.title),
     description: str(r.description),
@@ -157,46 +177,74 @@ export class Repo {
     return this.db.transaction(fn).immediate();
   }
 
-  // Réglages
+  // Personnes
 
-  getSettings(): Settings {
-    const r = this.db
-      .prepare(
-        `SELECT display_name, accent_color, avatar IS NOT NULL AS has_avatar, avatar_updated_at, signature_event_type_id,
-           signature_max_slots FROM settings WHERE id = 1`,
-      )
-      .get() as Row;
-    return {
-      displayName: str(r.display_name),
-      accentColor: str(r.accent_color),
-      hasAvatar: r.has_avatar === 1,
-      avatarUpdatedAt: nnum(r.avatar_updated_at),
-      signatureEventTypeId: nnum(r.signature_event_type_id),
-      signatureMaxSlots: num(r.signature_max_slots),
-    };
+  getUser(id: number): User | null {
+    const r = this.db.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?`).get(id) as Row | undefined;
+    return r ? toUser(r) : null;
   }
 
-  updateSignature(input: { eventTypeId: number | null; maxSlots: number }): void {
+  getUserByEmail(email: string): User | null {
+    const r = this.db.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE email = ?`).get(email) as Row | undefined;
+    return r ? toUser(r) : null;
+  }
+
+  getUserBySlug(slug: string): User | null {
+    const r = this.db.prepare(`SELECT ${USER_COLUMNS} FROM users WHERE slug = ?`).get(slug) as Row | undefined;
+    return r ? toUser(r) : null;
+  }
+
+  // Espace créé à la première connexion, avec une adresse de page libre tirée de l'email.
+  ensureUser(email: string): User {
+    return this.immediate(() => {
+      const existing = this.getUserByEmail(email);
+      if (existing) return existing;
+      const base = slugFromEmail(email);
+      let slug = base;
+      for (let i = 2; RESERVED_USER_SLUGS.has(slug) || this.getUserBySlug(slug); i++) slug = `${base}-${i}`;
+      const now = this.now();
+      const id = Number(
+        this.db.prepare("INSERT INTO users (email, slug, created_at, updated_at) VALUES (?, ?, ?, ?)").run(email, slug, now, now)
+          .lastInsertRowid,
+      );
+      return this.getUser(id)!;
+    });
+  }
+
+  // Personnes qui proposent au moins un type d'événement public, pour l'accueil du site.
+  listHosts(): User[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT ${USER_COLUMNS} FROM users u WHERE EXISTS
+             (SELECT 1 FROM event_types e WHERE e.user_id = u.id AND e.active = 1 AND e.visibility = 'public')
+           ORDER BY CASE WHEN display_name = '' THEN slug ELSE display_name END COLLATE NOCASE`,
+        )
+        .all() as Row[]
+    ).map(toUser);
+  }
+
+  updateSignature(userId: number, input: { eventTypeId: number | null; maxSlots: number }): void {
     this.db
-      .prepare("UPDATE settings SET signature_event_type_id = ?, signature_max_slots = ?, updated_at = ? WHERE id = 1")
-      .run(input.eventTypeId, input.maxSlots, this.now());
+      .prepare("UPDATE users SET signature_event_type_id = ?, signature_max_slots = ?, updated_at = ? WHERE id = ?")
+      .run(input.eventTypeId, input.maxSlots, this.now(), userId);
   }
 
-  updateSettings(input: { displayName: string; accentColor: string }): void {
+  updateProfile(userId: number, input: { displayName: string; accentColor: string; slug: string }): void {
     this.db
-      .prepare("UPDATE settings SET display_name = ?, accent_color = ?, updated_at = ? WHERE id = 1")
-      .run(input.displayName, input.accentColor, this.now());
+      .prepare("UPDATE users SET display_name = ?, accent_color = ?, slug = ?, updated_at = ? WHERE id = ?")
+      .run(input.displayName, input.accentColor, input.slug, this.now(), userId);
   }
 
-  setAvatar(data: Buffer | null, type: string | null): void {
+  setAvatar(userId: number, data: Buffer | null, type: string | null): void {
     this.db
-      .prepare("UPDATE settings SET avatar = ?, avatar_type = ?, avatar_updated_at = ?, updated_at = ? WHERE id = 1")
-      .run(data, type, data ? this.now() : null, this.now());
+      .prepare("UPDATE users SET avatar = ?, avatar_type = ?, avatar_updated_at = ?, updated_at = ? WHERE id = ?")
+      .run(data, type, data ? this.now() : null, this.now(), userId);
   }
 
-  getAvatar(): { data: Buffer; type: string } | null {
-    const r = this.db.prepare("SELECT avatar, avatar_type FROM settings WHERE id = 1").get() as Row;
-    if (!r.avatar || !r.avatar_type) return null;
+  getAvatar(userId: number): { data: Buffer; type: string } | null {
+    const r = this.db.prepare("SELECT avatar, avatar_type FROM users WHERE id = ?").get(userId) as Row | undefined;
+    if (!r?.avatar || !r.avatar_type) return null;
     return { data: r.avatar as Buffer, type: str(r.avatar_type) };
   }
 
@@ -250,8 +298,8 @@ export class Repo {
 
   // Comptes Google
 
-  listAccounts(): GoogleAccount[] {
-    return (this.db.prepare("SELECT * FROM google_accounts ORDER BY connected_at").all() as Row[]).map(toAccount);
+  listAccounts(userId: number): GoogleAccount[] {
+    return (this.db.prepare("SELECT * FROM google_accounts WHERE user_id = ? ORDER BY connected_at").all(userId) as Row[]).map(toAccount);
   }
 
   getAccount(id: number): GoogleAccount | null {
@@ -259,17 +307,22 @@ export class Repo {
     return r ? toAccount(r) : null;
   }
 
-  upsertAccount(input: { subject: string; email: string; refreshTokenEnc: string; scopes: string[] }): GoogleAccount {
+  // null : ce compte Google est déjà connecté par une autre personne.
+  upsertAccount(userId: number, input: { subject: string; email: string; refreshTokenEnc: string; scopes: string[] }): GoogleAccount | null {
     const now = this.now();
-    this.db
-      .prepare(
-        `INSERT INTO google_accounts (subject, email, refresh_token_enc, scopes, status, last_error, connected_at, updated_at)
-         VALUES (@subject, @email, @token, @scopes, 'connected', NULL, @now, @now)
-         ON CONFLICT (subject) DO UPDATE SET email = @email, refresh_token_enc = @token, scopes = @scopes,
-           status = 'connected', last_error = NULL, connected_at = @now, updated_at = @now`,
-      )
-      .run({ subject: input.subject, email: input.email, token: input.refreshTokenEnc, scopes: input.scopes.join(" "), now });
-    return toAccount(this.db.prepare("SELECT * FROM google_accounts WHERE subject = ?").get(input.subject) as Row);
+    return this.immediate(() => {
+      const owner = this.db.prepare("SELECT user_id FROM google_accounts WHERE subject = ?").get(input.subject) as Row | undefined;
+      if (owner && num(owner.user_id) !== userId) return null;
+      this.db
+        .prepare(
+          `INSERT INTO google_accounts (user_id, subject, email, refresh_token_enc, scopes, status, last_error, connected_at, updated_at)
+           VALUES (@userId, @subject, @email, @token, @scopes, 'connected', NULL, @now, @now)
+           ON CONFLICT (subject) DO UPDATE SET email = @email, refresh_token_enc = @token, scopes = @scopes,
+             status = 'connected', last_error = NULL, connected_at = @now, updated_at = @now`,
+        )
+        .run({ userId, subject: input.subject, email: input.email, token: input.refreshTokenEnc, scopes: input.scopes.join(" "), now });
+      return toAccount(this.db.prepare("SELECT * FROM google_accounts WHERE subject = ?").get(input.subject) as Row);
+    });
   }
 
   markAccountDisconnected(id: number, error: string): void {
@@ -287,9 +340,14 @@ export class Repo {
 
   // Agendas
 
-  listCalendars(): Calendar[] {
+  listCalendars(userId: number): Calendar[] {
     return (
-      this.db.prepare("SELECT * FROM calendars ORDER BY account_id, is_primary DESC, summary COLLATE NOCASE").all() as Row[]
+      this.db
+        .prepare(
+          `SELECT c.* FROM calendars c JOIN google_accounts a ON a.id = c.account_id WHERE a.user_id = ?
+           ORDER BY c.account_id, c.is_primary DESC, c.summary COLLATE NOCASE`,
+        )
+        .all(userId) as Row[]
     ).map(toCalendar);
   }
 
@@ -341,14 +399,14 @@ export class Repo {
 
   // Plannings
 
-  listSchedules(): Schedule[] {
-    return (this.db.prepare("SELECT id, name, time_zone FROM schedules ORDER BY name COLLATE NOCASE").all() as Row[]).map(
-      (r) => ({ id: num(r.id), name: str(r.name), timeZone: str(r.time_zone) }),
-    );
+  listSchedules(userId: number): Schedule[] {
+    return (
+      this.db.prepare("SELECT id, user_id, name, time_zone FROM schedules WHERE user_id = ? ORDER BY name COLLATE NOCASE").all(userId) as Row[]
+    ).map((r) => ({ id: num(r.id), userId: num(r.user_id), name: str(r.name), timeZone: str(r.time_zone) }));
   }
 
   getSchedule(id: number): ScheduleDetail | null {
-    const r = this.db.prepare("SELECT id, name, time_zone FROM schedules WHERE id = ?").get(id) as Row | undefined;
+    const r = this.db.prepare("SELECT id, user_id, name, time_zone FROM schedules WHERE id = ?").get(id) as Row | undefined;
     if (!r) return null;
     const weekly: Record<number, MinuteRange[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
     for (const rule of this.db
@@ -363,23 +421,24 @@ export class Repo {
       const list = (overrides[str(o.date)] ??= []);
       if (o.start_minute !== null) list.push(toRange(o));
     }
-    return { id: num(r.id), name: str(r.name), timeZone: str(r.time_zone), weekly, overrides };
+    return { id: num(r.id), userId: num(r.user_id), name: str(r.name), timeZone: str(r.time_zone), weekly, overrides };
   }
 
-  saveSchedule(id: number | null, input: { name: string; timeZone: string; weekly: Record<number, MinuteRange[]> }): number {
+  saveSchedule(userId: number, id: number | null, input: { name: string; timeZone: string; weekly: Record<number, MinuteRange[]> }): number {
     const now = this.now();
     return this.immediate(() => {
       let scheduleId = id;
       if (scheduleId === null) {
         scheduleId = Number(
           this.db
-            .prepare("INSERT INTO schedules (name, time_zone, created_at, updated_at) VALUES (?, ?, ?, ?)")
-            .run(input.name, input.timeZone, now, now).lastInsertRowid,
+            .prepare("INSERT INTO schedules (user_id, name, time_zone, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+            .run(userId, input.name, input.timeZone, now, now).lastInsertRowid,
         );
       } else {
-        this.db
-          .prepare("UPDATE schedules SET name = ?, time_zone = ?, updated_at = ? WHERE id = ?")
-          .run(input.name, input.timeZone, now, scheduleId);
+        const updated = this.db
+          .prepare("UPDATE schedules SET name = ?, time_zone = ?, updated_at = ? WHERE id = ? AND user_id = ?")
+          .run(input.name, input.timeZone, now, scheduleId, userId);
+        if (updated.changes === 0) throw new Error(`Planning ${scheduleId} introuvable pour cette personne`);
         this.db.prepare("DELETE FROM schedule_rules WHERE schedule_id = ?").run(scheduleId);
       }
       const insert = this.db.prepare(
@@ -435,17 +494,19 @@ export class Repo {
     return rows.map((r) => toEventType(r, blocking.get(num(r.id)) ?? []));
   }
 
-  listEventTypes(): EventType[] {
+  listEventTypes(userId: number): EventType[] {
     return this.eventTypesFrom(
-      this.db.prepare("SELECT * FROM event_types ORDER BY position, title COLLATE NOCASE").all() as Row[],
+      this.db.prepare("SELECT * FROM event_types WHERE user_id = ? ORDER BY position, title COLLATE NOCASE").all(userId) as Row[],
     );
   }
 
-  listPublicEventTypes(): EventType[] {
+  listPublicEventTypes(userId: number): EventType[] {
     return this.eventTypesFrom(
       this.db
-        .prepare("SELECT * FROM event_types WHERE active = 1 AND visibility = 'public' ORDER BY position, title COLLATE NOCASE")
-        .all() as Row[],
+        .prepare(
+          "SELECT * FROM event_types WHERE user_id = ? AND active = 1 AND visibility = 'public' ORDER BY position, title COLLATE NOCASE",
+        )
+        .all(userId) as Row[],
     );
   }
 
@@ -454,14 +515,15 @@ export class Repo {
     return r ? this.eventTypesFrom([r])[0]! : null;
   }
 
-  getEventTypeBySlug(slug: string): EventType | null {
-    const r = this.db.prepare("SELECT * FROM event_types WHERE slug = ?").get(slug) as Row | undefined;
+  getEventTypeBySlug(userId: number, slug: string): EventType | null {
+    const r = this.db.prepare("SELECT * FROM event_types WHERE user_id = ? AND slug = ?").get(userId, slug) as Row | undefined;
     return r ? this.eventTypesFrom([r])[0]! : null;
   }
 
-  saveEventType(id: number | null, input: EventTypeInput): number {
+  saveEventType(userId: number, id: number | null, input: EventTypeInput): number {
     const now = this.now();
     const params = {
+      userId,
       slug: input.slug,
       title: input.title,
       description: input.description,
@@ -483,29 +545,30 @@ export class Repo {
     return this.immediate(() => {
       let eventTypeId = id;
       if (eventTypeId === null) {
-        const position = (this.db.prepare("SELECT COALESCE(MAX(position), 0) + 1 AS p FROM event_types").get() as Row).p;
+        const position = (this.db.prepare("SELECT COALESCE(MAX(position), 0) + 1 AS p FROM event_types WHERE user_id = ?").get(userId) as Row).p;
         eventTypeId = Number(
           this.db
             .prepare(
-              `INSERT INTO event_types (slug, title, description, duration_minutes, location_type, location_value, schedule_id,
+              `INSERT INTO event_types (user_id, slug, title, description, duration_minutes, location_type, location_value, schedule_id,
                  destination_calendar_id, slot_interval_minutes, buffer_before_minutes, buffer_after_minutes, min_notice_minutes,
                  max_horizon_days, daily_limit, visibility, active, position, created_at, updated_at)
-               VALUES (@slug, @title, @description, @duration, @locationType, @locationValue, @scheduleId, @destination, @interval,
+               VALUES (@userId, @slug, @title, @description, @duration, @locationType, @locationValue, @scheduleId, @destination, @interval,
                  @before, @after, @notice, @horizon, @dailyLimit, @visibility, @active, @position, @now, @now)`,
             )
             .run({ ...params, position }).lastInsertRowid,
         );
       } else {
-        this.db
+        const updated = this.db
           .prepare(
             `UPDATE event_types SET slug = @slug, title = @title, description = @description, duration_minutes = @duration,
                location_type = @locationType, location_value = @locationValue, schedule_id = @scheduleId,
                destination_calendar_id = @destination, slot_interval_minutes = @interval, buffer_before_minutes = @before,
                buffer_after_minutes = @after, min_notice_minutes = @notice, max_horizon_days = @horizon,
                daily_limit = @dailyLimit, visibility = @visibility, active = @active, updated_at = @now
-             WHERE id = @id`,
+             WHERE id = @id AND user_id = @userId`,
           )
           .run({ ...params, id: eventTypeId });
+        if (updated.changes === 0) throw new Error(`Type d'événement ${eventTypeId} introuvable pour cette personne`);
         this.db.prepare("DELETE FROM event_type_calendars WHERE event_type_id = ?").run(eventTypeId);
       }
       const link = this.db.prepare("INSERT INTO event_type_calendars (event_type_id, calendar_id) VALUES (?, ?)");
@@ -642,15 +705,15 @@ export class Repo {
     return rows.map((r) => num(r.s));
   }
 
-  listBookings(filter: { when: "upcoming" | "past"; limit: number; offset: number }): (Booking & { eventTypeTitle: string })[] {
+  listBookings(userId: number, filter: { when: "upcoming" | "past"; limit: number; offset: number }): (Booking & { eventTypeTitle: string })[] {
     const now = this.now();
     const sql =
       filter.when === "upcoming"
         ? `SELECT b.*, e.title AS event_type_title FROM bookings b JOIN event_types e ON e.id = b.event_type_id
-             WHERE b.status != 'pending' AND b.end_at >= ? ORDER BY b.start_at ASC LIMIT ? OFFSET ?`
+             WHERE e.user_id = ? AND b.status != 'pending' AND b.end_at >= ? ORDER BY b.start_at ASC LIMIT ? OFFSET ?`
         : `SELECT b.*, e.title AS event_type_title FROM bookings b JOIN event_types e ON e.id = b.event_type_id
-             WHERE b.status != 'pending' AND b.end_at < ? ORDER BY b.start_at DESC LIMIT ? OFFSET ?`;
-    return (this.db.prepare(sql).all(now, filter.limit, filter.offset) as Row[]).map((r) => ({
+             WHERE e.user_id = ? AND b.status != 'pending' AND b.end_at < ? ORDER BY b.start_at DESC LIMIT ? OFFSET ?`;
+    return (this.db.prepare(sql).all(userId, now, filter.limit, filter.offset) as Row[]).map((r) => ({
       ...toBooking(r),
       eventTypeTitle: str(r.event_type_title),
     }));

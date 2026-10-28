@@ -23,9 +23,11 @@ test.describe.configure({ mode: "serial" });
 
 test("écrans publics", async ({ page }) => {
   await page.goto(`${DEMO}/`);
+  await shoot(page, "00-personnes");
+  await page.goto(`${DEMO}/camille-martin`);
   await shoot(page, "01-accueil");
 
-  await page.goto(`${DEMO}/echange-30-min`);
+  await page.goto(`${DEMO}/camille-martin/echange-30-min`);
   await expect(page.locator(".cal")).toBeVisible();
   await shoot(page, "02-reservation-calendrier");
 
@@ -55,7 +57,7 @@ test("écrans publics", async ({ page }) => {
   await shoot(page, "04-reservation-erreur-chargement");
   await page.unroute("**/echange-30-min?*");
 
-  await page.goto(`${DEMO}/echange-30-min`);
+  await page.goto(`${DEMO}/camille-martin/echange-30-min`);
   await openFirstAvailableDay(page);
   await shoot(page, "05-reservation-horaires");
 
@@ -89,7 +91,7 @@ test("écrans publics", async ({ page }) => {
   await shoot(page, "12-annulation");
 
   // Deuxième réservation, annulée, pour l'état « annulé ».
-  await page.goto(`${DEMO}/point-projet`);
+  await page.goto(`${DEMO}/camille-martin/point-projet`);
   await openFirstAvailableDay(page);
   await page.locator(".slots .slot").first().click();
   await page.getByLabel("Nom").fill("Marc Lefèvre");
@@ -160,11 +162,11 @@ test("écrans d'administration", async ({ page }) => {
 });
 
 test("signature de mail", async ({ page, request }) => {
-  const png = await request.get(`${DEMO}/signature.png`);
+  const png = await request.get(`${DEMO}/camille-martin/signature.png`);
   expect(png.headers()["content-type"]).toBe("image/png");
   writeFileSync(path.join(OUT, "50-signature-image.png"), await png.body());
 
-  await page.goto(`${DEMO}/creneaux`);
+  await page.goto(`${DEMO}/camille-martin/creneaux`);
   await expect(page.getByRole("heading", { name: "Réserver un échange" })).toBeVisible();
   await shoot(page, "51-signature-creneaux");
 
@@ -186,7 +188,7 @@ test("compte Google déconnecté", async ({ page }) => {
   db.prepare("UPDATE google_accounts SET refresh_token_enc = ?").run(encrypt("mock-refresh:revoque@exemple.test", key));
   db.close();
 
-  await page.goto(`${DEMO}/echange-30-min?mois=${new Date().toISOString().slice(0, 7)}&tz=Europe/Paris`);
+  await page.goto(`${DEMO}/camille-martin/echange-30-min?mois=${new Date().toISOString().slice(0, 7)}&tz=Europe/Paris`);
   await expect(page.getByText("Disponibilités momentanément indisponibles")).toBeVisible();
   await shoot(page, "15-reservation-indisponible");
 

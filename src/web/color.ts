@@ -1,3 +1,6 @@
+// Couleur d'accent par défaut, celle de la base pour une nouvelle personne.
+export const DEFAULT_ACCENT = "#0d6b52";
+
 // Contraste WCAG 2.x entre deux couleurs hexadécimales.
 function channel(v: number): number {
   const c = v / 255;

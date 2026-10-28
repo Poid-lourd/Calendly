@@ -149,7 +149,7 @@ export class Bookings {
     });
     this.availability.invalidate();
 
-    const host = this.repo.getSettings().displayName.trim();
+    const host = this.repo.getUser(et.userId)?.displayName.trim() ?? "";
     try {
       const created = await this.accounts.with(destination.accountId, (creds) =>
         this.accounts.provider.createEvent(creds, destination.externalId, {

@@ -1,23 +1,31 @@
 import { raw } from "hono/html";
 import type { Child } from "hono/jsx";
-import type { Settings } from "../../db/types.js";
+import type { EventType, User } from "../../db/types.js";
+import { DEFAULT_ACCENT } from "../color.js";
 import type { Assets } from "../context.js";
 
 export interface PageMeta {
   title: string;
   assets: Assets;
-  settings: Settings;
+  // Personne dont c'est la page (nom, couleur, photo). null : page commune du site.
+  host: User | null;
   csrf: string;
   scripts?: ("booking" | "admin")[];
   robots?: "noindex";
 }
 
-export function avatarUrl(settings: Settings): string | null {
-  return settings.hasAvatar ? `/media/avatar?v=${settings.avatarUpdatedAt ?? 0}` : null;
+export type HostMeta = PageMeta & { host: User };
+
+export function avatarUrl(user: User): string | null {
+  return user.hasAvatar ? `/media/avatar/${user.id}?v=${user.avatarUpdatedAt ?? 0}` : null;
 }
 
+export const hostPath = (host: User): string => `/${host.slug}`;
+export const eventPath = (host: User, et: EventType): string => `/${host.slug}/${et.slug}`;
+
 export function Document(props: PageMeta & { children: Child; bodyClass: string }) {
-  const siteName = props.settings.displayName || "Rendez-vous";
+  const siteName = props.host?.displayName || "Rendez-vous";
+  const icon = props.host ? avatarUrl(props.host) : null;
   return (
     <>
       {raw("<!DOCTYPE html>")}
@@ -29,8 +37,8 @@ export function Document(props: PageMeta & { children: Child; bodyClass: string 
         {props.robots ? <meta name="robots" content="noindex, nofollow" /> : null}
         <title>{props.title === siteName ? siteName : `${props.title} · ${siteName}`}</title>
         <link rel="stylesheet" href={props.assets.css} />
-        <link rel="stylesheet" href={`/theme.css?v=${props.settings.accentColor.slice(1)}`} />
-        {avatarUrl(props.settings) ? <link rel="icon" href={avatarUrl(props.settings)!} /> : null}
+        <link rel="stylesheet" href={`/theme.css?v=${(props.host?.accentColor ?? DEFAULT_ACCENT).slice(1)}`} />
+        {icon ? <link rel="icon" href={icon} /> : null}
         {(props.scripts ?? []).map((s) => (
           <script src={props.assets[s]} defer />
         ))}
@@ -57,13 +65,13 @@ export function PublicPage(props: PageMeta & { children: Child }) {
   );
 }
 
-export function HostLine(props: { settings: Settings; size?: "lg" }) {
-  const url = avatarUrl(props.settings);
-  if (!url && !props.settings.displayName) return null;
+export function HostLine(props: { host: User; size?: "lg" }) {
+  const url = avatarUrl(props.host);
+  if (!url && !props.host.displayName) return null;
   return (
     <div class="info-host">
       {url ? <img class={props.size === "lg" ? "avatar avatar--lg" : "avatar"} src={url} alt="" width={40} height={40} /> : null}
-      {props.settings.displayName ? <span class="host">{props.settings.displayName}</span> : null}
+      {props.host.displayName ? <span class="host">{props.host.displayName}</span> : null}
     </div>
   );
 }

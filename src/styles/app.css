@@ -547,6 +547,12 @@ legend {
   text-decoration: none;
 }
 
+.event-link--host {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
 .event-link:hover .event-title {
   text-decoration: underline;
   text-decoration-thickness: 1px;
@@ -1235,12 +1241,15 @@ td[aria-selected="true"] a.day {
   color: var(--text-2);
   font-size: 15px;
   white-space: nowrap;
+  /* Largeur du texte, jusqu'à la moitié du champ : le champ de saisie prend le reste. */
+  flex: none;
   max-width: 50%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .slug-row .input {
+  min-width: 0;
   border-radius: 0 var(--radius) var(--radius) 0;
 }
 

@@ -12,6 +12,14 @@ export class AccountUnavailableError extends Error {
   }
 }
 
+// Un compte Google n'appartient qu'à une personne : ses agendas et ses jetons ne se partagent pas entre espaces.
+export class AccountTakenError extends Error {
+  constructor(readonly email: string) {
+    super(`Le compte Google ${email} est déjà connecté par une autre personne`);
+    this.name = "AccountTakenError";
+  }
+}
+
 export class MissingScopesError extends Error {
   constructor(readonly missing: string[]) {
     super(`Autorisations manquantes : ${missing.join(", ")}`);
@@ -54,16 +62,17 @@ export class Accounts {
     }
   }
 
-  async connect(tokens: TokenResult): Promise<GoogleAccount> {
+  async connect(userId: number, tokens: TokenResult): Promise<GoogleAccount> {
     const missing = this.provider.connectScopes.filter((s) => !tokens.scopes.includes(s) && s !== "openid" && s !== "email");
     if (missing.length > 0) throw new MissingScopesError(missing);
     if (!tokens.refreshToken) throw new Error("Google n'a pas fourni de refresh token");
-    const account = this.repo.upsertAccount({
+    const account = this.repo.upsertAccount(userId, {
       subject: tokens.identity.subject,
       email: tokens.identity.email,
       refreshTokenEnc: encrypt(tokens.refreshToken, this.key),
       scopes: tokens.scopes,
     });
+    if (!account) throw new AccountTakenError(tokens.identity.email);
     try {
       await this.sync(account.id);
     } catch (err) {

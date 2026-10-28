@@ -8,6 +8,7 @@ test.describe.configure({ mode: "serial" });
 
 test("réservation, reprogrammation puis annulation", async ({ page }) => {
   await page.goto(`${BASE}/`);
+  await page.getByRole("link", { name: "Camille Martin" }).click();
   await page.getByRole("link", { name: /Échange de 30 minutes/ }).click();
   await expect(page.getByRole("heading", { name: "Choisissez un jour et un horaire" })).toBeVisible();
 
@@ -67,7 +68,7 @@ test("réservation, reprogrammation puis annulation", async ({ page }) => {
 });
 
 test("annulation par l'organisateur depuis l'administration", async ({ page }) => {
-  await page.goto(`${BASE}/point-projet`);
+  await page.goto(`${BASE}/camille-martin/point-projet`);
   await openFirstAvailableDay(page);
   await page.locator(".slots .slot").first().click();
   await page.getByLabel("Nom").fill("Paul Martin");
@@ -88,7 +89,7 @@ test("annulation par l'organisateur depuis l'administration", async ({ page }) =
 test("deux visiteurs sur le même horaire : le second est refusé", async ({ browser }) => {
   const a = await browser.newPage();
   const b = await browser.newPage();
-  await a.goto(`${BASE}/echange-30-min`);
+  await a.goto(`${BASE}/camille-martin/echange-30-min`);
   await openFirstAvailableDay(a);
   const href = await a.locator(".slots .slot").first().getAttribute("href");
   await a.goto(`${BASE}${href}`);
@@ -114,7 +115,7 @@ test.describe("fuseau du visiteur", () => {
   test.use({ timezoneId: "Asia/Tokyo" });
 
   test("détecté automatiquement puis modifiable", async ({ page }) => {
-    await page.goto(`${BASE}/echange-30-min`);
+    await page.goto(`${BASE}/camille-martin/echange-30-min`);
     await expect(page.locator("#tz")).toHaveValue("Asia/Tokyo");
     await expect(page).toHaveURL(/tz=Asia%2FTokyo/);
     await openFirstAvailableDay(page);
@@ -125,13 +126,13 @@ test.describe("fuseau du visiteur", () => {
     await page.locator("#tz").selectOption("Europe/Paris");
     await expect(page).toHaveURL(/tz=Europe%2FParis/);
     await expect(page.locator("#tz")).toHaveValue("Europe/Paris");
-    await page.goto(`${BASE}/echange-30-min`);
+    await page.goto(`${BASE}/camille-martin/echange-30-min`);
     await expect(page.locator("#tz")).toHaveValue("Europe/Paris");
   });
 });
 
 test("calendrier navigable au clavier", async ({ page }) => {
-  await page.goto(`${BASE}/echange-30-min`);
+  await page.goto(`${BASE}/camille-martin/echange-30-min`);
   const focusable = page.locator(".cal .day[tabindex='0']");
   await expect(focusable).toHaveCount(1);
   await focusable.focus();
@@ -147,7 +148,7 @@ test("calendrier navigable au clavier", async ({ page }) => {
   await expect(page.locator(".cal .day").first()).toBeFocused();
 
   // Un jour disponible s'ouvre avec Entrée, le focus passe aux horaires.
-  await page.goto(`${BASE}/echange-30-min`);
+  await page.goto(`${BASE}/camille-martin/echange-30-min`);
   const available = page.locator(".cal a.day").first();
   if ((await available.count()) === 0) await page.getByRole("link", { name: "Mois suivant" }).click();
   await page.locator(".cal a.day").first().focus();
@@ -159,7 +160,7 @@ test.describe("sans JavaScript", () => {
   test.use({ javaScriptEnabled: false });
 
   test("le parcours reste possible", async ({ page }) => {
-    await page.goto(`${BASE}/appel`);
+    await page.goto(`${BASE}/camille-martin/appel`);
     await expect(page.getByRole("button", { name: "Appliquer" })).toBeVisible();
     let day = page.locator(".cal a.day").first();
     if ((await day.count()) === 0) {
@@ -177,7 +178,7 @@ test.describe("sans JavaScript", () => {
 });
 
 test("depuis la signature de mail : créneau de la semaine puis réservation", async ({ page }) => {
-  await page.goto(`${BASE}/creneaux`);
+  await page.goto(`${BASE}/camille-martin/creneaux`);
   await expect(page.getByRole("heading", { name: "Réserver un échange" })).toBeVisible();
   const slots = page.locator(".shortlist-slot");
   expect(await slots.count()).toBeGreaterThan(0);
@@ -192,7 +193,7 @@ test("depuis la signature de mail : créneau de la semaine puis réservation", a
   await expect(page.getByRole("heading", { name: "Réservation confirmée" })).toBeVisible();
 
   // Le créneau réservé n'est plus proposé.
-  await page.goto(`${BASE}/creneaux`);
+  await page.goto(`${BASE}/camille-martin/creneaux`);
   const hrefs = await page.locator(".shortlist-slot").evaluateAll((els) => els.map((e) => e.getAttribute("href")));
   expect(hrefs).not.toContain(href);
   await page.getByRole("link", { name: "Voir toutes les disponibilités" }).click();

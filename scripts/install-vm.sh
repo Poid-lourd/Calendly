@@ -82,6 +82,8 @@ if [ ! -f .env ]; then
 CALENDAR_PROVIDER=$MODE
 DOMAIN=$DOMAIN
 ADMIN_EMAILS=$ADMIN_EMAILS
+# Domaines dont toutes les adresses Google peuvent ouvrir leur espace, par exemple ADMIN_DOMAINS=exemple.fr
+ADMIN_DOMAINS=
 GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
 GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
 # Ne pas perdre ni changer cette clé : elle chiffre les jetons Google en base.

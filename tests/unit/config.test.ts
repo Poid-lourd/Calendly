@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ConfigError, loadConfig } from "../../src/config.js";
+import { canSignIn, ConfigError, loadConfig } from "../../src/config.js";
 
 const base = { ADMIN_EMAILS: "Moi@Exemple.fr, autre@exemple.fr" };
 
@@ -34,7 +34,19 @@ describe("configuration", () => {
     expect(google.warnings.join(" ")).toMatch(/DEMO_SEED/);
   });
 
-  it("exige au moins un administrateur", () => {
-    expect(() => loadConfig({ CALENDAR_PROVIDER: "mock" })).toThrow(/ADMIN_EMAILS/);
+  it("exige au moins une adresse ou un domaine autorisé", () => {
+    expect(() => loadConfig({ CALENDAR_PROVIDER: "mock" })).toThrow(/ADMIN_EMAILS ou ADMIN_DOMAINS/);
+    expect(() => loadConfig({ CALENDAR_PROVIDER: "mock", ADMIN_DOMAINS: "pas un domaine" })).toThrow(/ADMIN_DOMAINS/);
+    expect(loadConfig({ CALENDAR_PROVIDER: "mock", ADMIN_DOMAINS: "@42Lausanne.ch" }).adminDomains).toEqual(["42lausanne.ch"]);
+  });
+
+  it("autorise les adresses listées et celles des domaines, au domaine exact", () => {
+    const c = loadConfig({ ...base, CALENDAR_PROVIDER: "mock", ADMIN_DOMAINS: "42lausanne.ch" });
+    expect(canSignIn(c, "Moi@Exemple.fr")).toBe(true);
+    expect(canSignIn(c, "marie.dupont@42lausanne.ch")).toBe(true);
+    expect(canSignIn(c, "intrus@exemple.fr")).toBe(false);
+    expect(canSignIn(c, "x@etudiant.42lausanne.ch")).toBe(false);
+    expect(canSignIn(c, "x@42lausanne.ch.pirate.com")).toBe(false);
+    expect(canSignIn(c, "42lausanne.ch")).toBe(false);
   });
 });

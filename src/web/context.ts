@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import type { Config } from "../config.js";
 import type { Repo } from "../db/repo.js";
+import type { User } from "../db/types.js";
 import type { Availability } from "../domain/availability.js";
 import type { Bookings } from "../domain/bookings.js";
 import type { Accounts } from "../providers/accounts.js";
@@ -36,7 +37,8 @@ export interface Env {
   Variables: {
     deps: Deps;
     csrf: string;
-    admin: { email: string } | null;
+    // Personne connectée à l'admin : tout ce qu'elle voit et modifie lui appartient.
+    admin: User | null;
   };
 }
 

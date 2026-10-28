@@ -99,16 +99,17 @@ export class SignatureRenderer {
 }
 
 // Bloc HTML de signature, compatible avec les messageries : tableau, styles en ligne, URL absolues.
-export function signatureHtml(opts: { baseUrl: URL; slug: string; accent: string }): string {
+// hostSlug : adresse de la page de la personne ; slug : type d'événement du lien vers le calendrier complet.
+export function signatureHtml(opts: { baseUrl: URL; hostSlug: string; slug: string; accent: string }): string {
   const url = (p: string) => new URL(p, opts.baseUrl).toString();
   const font = "font-family:'IBM Plex Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;";
   return [
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:16px;">`,
     `<tr><td style="padding:0 0 8px 0;${font}font-size:14px;font-weight:600;color:${TEXT};">Réserver un échange</td></tr>`,
-    `<tr><td style="padding:0;"><a href="${url("/creneaux")}" style="text-decoration:none;">`,
-    `<img src="${url("/signature.png")}" width="${SIGNATURE_WIDTH}" height="${SIGNATURE_HEIGHT}" alt="Voir les créneaux disponibles cette semaine" style="display:block;width:100%;max-width:${SIGNATURE_WIDTH}px;height:auto;border:0;">`,
+    `<tr><td style="padding:0;"><a href="${url(`/${opts.hostSlug}/creneaux`)}" style="text-decoration:none;">`,
+    `<img src="${url(`/${opts.hostSlug}/signature.png`)}" width="${SIGNATURE_WIDTH}" height="${SIGNATURE_HEIGHT}" alt="Voir les créneaux disponibles cette semaine" style="display:block;width:100%;max-width:${SIGNATURE_WIDTH}px;height:auto;border:0;">`,
     `</a></td></tr>`,
-    `<tr><td style="padding:8px 0 0 0;${font}font-size:13px;"><a href="${url(`/${opts.slug}`)}" style="color:${opts.accent};text-decoration:underline;">Plus de disponibilités dans les semaines à venir</a></td></tr>`,
+    `<tr><td style="padding:8px 0 0 0;${font}font-size:13px;"><a href="${url(`/${opts.hostSlug}/${opts.slug}`)}" style="color:${opts.accent};text-decoration:underline;">Plus de disponibilités dans les semaines à venir</a></td></tr>`,
     `</table>`,
   ].join("\n");
 }
