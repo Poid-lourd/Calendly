@@ -95,7 +95,13 @@ curl -fsSL https://raw.githubusercontent.com/Poid-lourd/calendly/main/scripts/in
 
 Le script installe Docker, clone le dépôt dans `~/rendez-vous`, pose les questions nécessaires (domaine, mode Google ou simulé, adresses admin, identifiants OAuth), génère `ENCRYPTION_KEY`, démarre l'application derrière Caddy, ouvre les ports 80 et 443 si ufw est actif et programme une sauvegarde quotidienne. Sans nom de domaine, il propose une adresse `IP.sslip.io` qui obtient un vrai certificat HTTPS. En mode simulé, il génère une adresse admin aléatoire qui sert de mot de passe sur l'écran de connexion simulé.
 
-Relancer la même commande met l'application à jour (sauvegarde, `git pull`, reconstruction) en conservant `.env`.
+Pour mettre à jour ensuite, lancer la copie locale du script, qui récupère la dernière version (`git pull`), sauvegarde, reconstruit et conserve `.env` :
+
+```sh
+bash ~/rendez-vous/scripts/install-vm.sh
+```
+
+La copie locale évite le cache de `raw.githubusercontent.com`, qui peut servir une version du script vieille de quelques minutes.
 
 ### Pas à pas
 

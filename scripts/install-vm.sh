@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installation ou mise à jour sur une VM Ubuntu, en une commande :
 #   curl -fsSL https://raw.githubusercontent.com/Poid-lourd/calendly/main/scripts/install-vm.sh | bash
-# Relancer la même commande met l'application à jour ; le fichier .env existant est conservé.
+# Mises à jour : bash ~/rendez-vous/scripts/install-vm.sh (le fichier .env existant est conservé).
 set -euo pipefail
 
 REPO_URL="https://github.com/Poid-lourd/calendly.git"
@@ -153,6 +153,7 @@ else
   echo "Mode simulé. Adresse à saisir sur l'écran de connexion simulé : $ADMIN_EMAILS"
 fi
 echo "Journaux : cd $APP_DIR && docker compose logs -f app"
+echo "Mise à jour : bash $APP_DIR/scripts/install-vm.sh"
 if [ -n "$SUDO" ] && [ "$DOCKER" != "docker" ]; then
   echo "Reconnectez-vous en SSH pour utiliser docker sans sudo."
 fi
