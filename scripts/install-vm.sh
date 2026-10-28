@@ -19,6 +19,13 @@ ask() {
   printf '%s' "$answer"
 }
 
+valid_domain() {
+  printf '%s' "$1" | grep -Eq '^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$'
+}
+
+# Tout le script est dans main(), appelée à la dernière ligne : bash lit ainsi le fichier en entier avant de l'exécuter.
+# Sinon, avec curl | bash, une commande qui lit l'entrée standard (docker compose exec) avalerait la suite du script.
+main() {
 if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
 
 say "Docker"
@@ -47,7 +54,11 @@ if [ ! -f .env ]; then
   DEFAULT_DOMAIN=""
   if [ -n "$PUBLIC_IP" ]; then DEFAULT_DOMAIN="$(printf '%s' "$PUBLIC_IP" | tr . -).sslip.io"; fi
   echo "Nom de domaine dont le DNS pointe vers cette VM. Sans domaine, l'adresse sslip.io proposée fonctionne avec HTTPS."
-  DOMAIN="$(ask "Domaine" "$DEFAULT_DOMAIN")"
+  DOMAIN="$(ask "Domaine" "$DEFAULT_DOMAIN" | tr '[:upper:]' '[:lower:]')"
+  while ! valid_domain "$DOMAIN"; do
+    echo "« $DOMAIN » n'est pas un nom de domaine valide."
+    DOMAIN="$(ask "Domaine" "$DEFAULT_DOMAIN" | tr '[:upper:]' '[:lower:]')"
+  done
   MODE="$(ask "Fournisseur d'agenda, google ou mock (simulé)" "google")"
   ENCRYPTION_KEY="$(openssl rand -base64 32)"
 
@@ -84,6 +95,13 @@ else
 fi
 
 DOMAIN="$(grep -E '^DOMAIN=' .env | cut -d= -f2-)"
+if ! valid_domain "$DOMAIN"; then
+  echo "DOMAIN invalide dans $APP_DIR/.env : « $DOMAIN »." >&2
+  IP="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  if [ -n "$IP" ]; then EXAMPLE="$(printf '%s' "$IP" | tr . -).sslip.io"; else EXAMPLE="rdv.exemple.fr"; fi
+  echo "Corrigez la ligne DOMAIN= (par exemple DOMAIN=$EXAMPLE) puis relancez ce script." >&2
+  exit 1
+fi
 MODE="$(grep -E '^CALENDAR_PROVIDER=' .env | cut -d= -f2-)"
 ADMIN_EMAILS="$(grep -E '^ADMIN_EMAILS=' .env | cut -d= -f2-)"
 
@@ -100,9 +118,9 @@ fi
 
 say "Démarrage"
 if $DOCKER compose ps --status running --services 2>/dev/null | grep -q '^app$'; then
-  scripts/backup.sh >/dev/null 2>&1 && echo "Sauvegarde faite avant mise à jour, dossier backups/."
+  scripts/backup.sh </dev/null >/dev/null 2>&1 && echo "Sauvegarde faite avant mise à jour, dossier backups/."
 fi
-$DOCKER compose up -d --build
+$DOCKER compose up -d --build </dev/null
 
 printf 'Attente de l application'
 for _ in $(seq 1 60); do
@@ -138,3 +156,6 @@ echo "Journaux : cd $APP_DIR && docker compose logs -f app"
 if [ -n "$SUDO" ] && [ "$DOCKER" != "docker" ]; then
   echo "Reconnectez-vous en SSH pour utiliser docker sans sudo."
 fi
+}
+
+main "$@"
