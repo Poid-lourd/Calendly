@@ -65,6 +65,21 @@ export function createApp(deps: Deps): Hono<Env> {
     return c.body(new Uint8Array(png));
   });
 
+  // Pastille d'un créneau de la signature : même régime que l'image complète.
+  app.get("/:user/signature/:file{[1-4]\\.png}", async (c) => {
+    const user = deps.repo.getUserBySlug(c.req.param("user"));
+    if (!user) return c.body(null, 404);
+    const now = deps.now();
+    const selection = await selectSignatureSlots(deps.repo, deps.availability, user, now);
+    const png = deps.signature.renderChip(selection, Number(c.req.param("file").charAt(0)), now);
+    c.header("Content-Type", "image/png");
+    c.header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+    c.header("Pragma", "no-cache");
+    c.header("Expires", "0");
+    c.header("Cross-Origin-Resource-Policy", "cross-origin");
+    return c.body(new Uint8Array(png));
+  });
+
   app.get("/media/avatar/:id", (c) => {
     const id = Number(c.req.param("id"));
     const avatar = Number.isInteger(id) && id > 0 ? deps.repo.getAvatar(id) : null;

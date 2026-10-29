@@ -82,10 +82,12 @@ Chaque plage du planning accepte un nombre de créneaux. Exemple : lundi 13:00�
 Le menu *Signature* de l'admin génère un bloc à ajouter à votre signature :
 
 - un titre « Réserver un échange » ;
-- une image qui montre quelques créneaux libres de la semaine (1 à 4, répartis un par jour en priorité), recalculée par le serveur à chaque ouverture du message. Elle mène à une page qui liste ces créneaux, chacun réservable en un clic ;
+- 1 à 4 créneaux libres de la semaine (répartis un par jour en priorité). Chaque créneau est une petite image recalculée par le serveur à chaque ouverture du message (`/personne/signature/1.png`, `2.png`…) et un lien (`/personne/signature/1`…) qui ouvre directement le formulaire de réservation de ce créneau : nom, email, confirmer ;
 - un lien « Plus de disponibilités dans les semaines à venir » vers le calendrier complet.
 
-S'il ne reste rien cette semaine, l'image montre la semaine suivante. Les heures de l'image sont celles du planning (le fuseau du destinataire est inconnu à l'ouverture d'un mail) ; la page de réservation, elle, s'affiche dans le fuseau du visiteur.
+S'il ne reste rien cette semaine, les créneaux sont ceux de la semaine suivante ; s'il n'y a rien du tout, la première image propose « Voir les dates » et mène à la liste des créneaux. Le lien d'un créneau est résolu au moment du clic : si l'horaire vu dans le mail vient d'être pris, le formulaire affiche le créneau qui occupe désormais cette place, et l'horaire est toujours rappelé avant confirmation. Les heures des images sont celles du planning (le fuseau du destinataire est inconnu à l'ouverture d'un mail) ; le formulaire, lui, s'affiche dans le fuseau du visiteur.
+
+Les signatures copiées avant cette version (une seule image `/personne/signature.png` liée à `/personne/creneaux`) continuent de fonctionner.
 
 Dans Infomaniak Mail : *Paramètres* → *Signatures* → votre adresse → nouvelle signature → édition du code source HTML → coller le code copié depuis l'admin à la suite de votre signature habituelle. À la rédaction, la signature se choisit dans le menu déroulant des signatures. D'après la FAQ Infomaniak, la gestion de plusieurs signatures dépend de l'offre (my kSuite+).
 
@@ -110,6 +112,17 @@ bash ~/rendez-vous/scripts/install-vm.sh
 ```
 
 La copie locale évite le cache de `raw.githubusercontent.com`, qui peut servir une version du script vieille de quelques minutes.
+
+### Nom de domaine
+
+Les liens de la signature et la connexion Google doivent fonctionner depuis Internet, pas seulement depuis le réseau où se trouve la VM.
+
+1. Vérifier que la VM a une adresse IP publique joignable de l'extérieur sur les ports 80 et 443 (depuis un téléphone en 4G : `http://IP-PUBLIQUE` doit répondre). Une adresse privée (`10.x`, `172.16–31.x`, `192.168.x`) ne suffit pas : il faut alors une redirection de ports ou une IP publique fournie par l'hébergeur.
+2. Acheter un domaine chez un registraire (Infomaniak, OVHcloud, Gandi…), par exemple `exemple.fr`.
+3. Dans la zone DNS du domaine, créer un enregistrement `A` : nom `rdv`, valeur l'IP publique de la VM (et `AAAA` si la VM a une IPv6). Vérifier avec `dig +short rdv.exemple.fr`.
+4. Sur la VM, remplacer la ligne `DOMAIN=` de `~/rendez-vous/.env` par `DOMAIN=rdv.exemple.fr` (et supprimer `BASE_URL` s'il est défini), puis relancer `bash ~/rendez-vous/scripts/install-vm.sh`. Caddy obtient le certificat au premier accès.
+5. Dans Google Cloud, client OAuth : ajouter `https://rdv.exemple.fr/auth/google/callback` aux URI de redirection ; dans *Google Auth Platform* → *Image de marque*, ajouter `exemple.fr` aux domaines autorisés.
+6. Ouvrir `/admin/signature` et recopier le code HTML dans la messagerie : il contient le nouveau domaine.
 
 ### Pas à pas
 

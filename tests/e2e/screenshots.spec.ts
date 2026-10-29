@@ -175,8 +175,8 @@ test("signature de mail", async ({ page, request }) => {
   await expect(page.frameLocator(".signature-frame").getByText("Réserver un échange")).toBeVisible();
   await page.waitForFunction(() => {
     const frame = document.querySelector<HTMLIFrameElement>(".signature-frame");
-    const img = frame?.contentDocument?.querySelector("img");
-    return Boolean(img && img.complete && img.naturalWidth > 0);
+    const imgs = [...(frame?.contentDocument?.querySelectorAll("img") ?? [])];
+    return imgs.length > 0 && imgs.every((img) => img.complete && img.naturalWidth > 0);
   });
   await shoot(page, "52-admin-signature");
 });

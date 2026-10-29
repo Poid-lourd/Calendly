@@ -177,6 +177,17 @@ test.describe("sans JavaScript", () => {
   });
 });
 
+test("depuis un créneau de la signature de mail : réservation directe", async ({ page }) => {
+  await page.goto(`${BASE}/camille-martin/creneaux`);
+  const time = (await page.locator(".shortlist-slot").nth(1).locator("strong").textContent())!.trim();
+  await page.goto(`${BASE}/camille-martin/signature/2`);
+  await expect(page.locator(".chosen")).toContainText(time);
+  await page.getByLabel("Nom").fill("Depuis Pastille");
+  await page.getByLabel("Email").fill("pastille@exemple.fr");
+  await page.getByRole("button", { name: "Confirmer la réservation" }).click();
+  await expect(page.getByRole("heading", { name: "Réservation confirmée" })).toBeVisible();
+});
+
 test("depuis la signature de mail : créneau de la semaine puis réservation", async ({ page }) => {
   await page.goto(`${BASE}/camille-martin/creneaux`);
   await expect(page.getByRole("heading", { name: "Réserver un échange" })).toBeVisible();

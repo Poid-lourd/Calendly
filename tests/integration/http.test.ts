@@ -395,6 +395,32 @@ describe("signature de mail", () => {
     expect(html).toContain('href="/camille-martin/echange-30-min?tz=Europe%2FParis"');
   });
 
+  it("chaque créneau de la signature a son image et ouvre sa réservation", async () => {
+    const { app } = await setup();
+    const img = await app.request(`${BASE}/camille-martin/signature/2.png`);
+    expect(img.status).toBe(200);
+    expect(img.headers.get("content-type")).toBe("image/png");
+    expect(img.headers.get("cache-control")).toContain("no-store");
+    expect(img.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
+    expect((await app.request(`${BASE}/camille-martin/signature/5.png`)).status).toBe(404);
+
+    const html = await (await app.request(`${BASE}/camille-martin/creneaux?tz=Europe/Paris`)).text();
+    const links = [...html.matchAll(/href="(\/camille-martin\/echange-30-min\/reserver\?[^"]+)"/g)].map((m) => m[1]!.replaceAll("&amp;", "&"));
+    const res = await app.request(`${BASE}/camille-martin/signature/2`, { headers: { cookie: "tz=Europe/Paris" } });
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(links[1]);
+    const form = await app.request(`${BASE}${res.headers.get("location")}`);
+    expect(await form.text()).toContain("Confirmer la réservation");
+  });
+
+  it("sans créneau à cette place, renvoie vers la liste des créneaux", async () => {
+    const { app, ctx } = await setup();
+    ctx.repo.updateSignature(demoUser(ctx).id, { eventTypeId: demoUser(ctx).signatureEventTypeId, maxSlots: 1 });
+    const res = await app.request(`${BASE}/camille-martin/signature/3`);
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("/camille-martin/creneaux");
+  });
+
   it("sans type configuré, la page renvoie vers la page de la personne", async () => {
     const { app, ctx } = await setup();
     ctx.repo.updateSignature(demoUser(ctx).id, { eventTypeId: null, maxSlots: 3 });
@@ -402,6 +428,7 @@ describe("signature de mail", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("/camille-martin");
     expect((await app.request(`${BASE}/camille-martin/signature.png`)).status).toBe(200);
+    expect((await app.request(`${BASE}/camille-martin/signature/1`)).headers.get("location")).toBe("/camille-martin");
   });
 
   it("administration réservée, aperçu isolé avec sa propre politique", async () => {
@@ -412,7 +439,8 @@ describe("signature de mail", () => {
     const page = await app.request(`${BASE}/admin/signature`, { headers: { cookie: `sid=${sid}` } });
     const html = await page.text();
     expect(html).toContain("Signature de mail");
-    expect(html).toContain("http://localhost:3000/camille-martin/signature.png");
+    expect(html).toContain("http://localhost:3000/camille-martin/signature/1.png");
+    expect(html).toContain("http://localhost:3000/camille-martin/signature/3&quot;");
     const preview = await app.request(`${BASE}/admin/signature/apercu`, { headers: { cookie: `sid=${sid}` } });
     expect(preview.headers.get("content-security-policy")).toContain("frame-ancestors 'self'");
     expect(preview.headers.get("x-frame-options")).toBe("SAMEORIGIN");

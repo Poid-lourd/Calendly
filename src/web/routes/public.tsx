@@ -349,6 +349,22 @@ export function publicRoutes(app: Hono<Env>): void {
     );
   });
 
+  // Créneau n de la signature de mail : formulaire de réservation du créneau affiché à cette place.
+  // La sélection est recalculée au clic ; le formulaire rappelle l'horaire avant confirmation.
+  app.get("/:user/signature/:n{[1-4]}", async (c) => {
+    const deps = c.get("deps");
+    const host = hostFrom(c);
+    if (!host) return notFound(c);
+    if (limited(c, "picker", 120, MINUTE)) return tooMany(c);
+    const selection = await selectSignatureSlots(deps.repo, deps.availability, host, deps.now());
+    if (selection.status === "disabled" || !selection.eventType) return c.redirect(hostPath(host), 302);
+    const slot = selection.status === "ok" ? selection.slots[Number(c.req.param("n")) - 1] : undefined;
+    if (slot === undefined) return c.redirect(`${hostPath(host)}/creneaux`, 302);
+    const { tz } = resolveTz(c, selection.zone);
+    const params = new URLSearchParams({ debut: new Date(slot).toISOString(), tz });
+    return c.redirect(`${eventPath(host, selection.eventType)}/reserver?${params.toString()}`, 302);
+  });
+
   // Étapes 1 et 2 : jour puis horaire.
   app.get("/:user/:slug", async (c) => {
     const found = eventTypeFrom(c);

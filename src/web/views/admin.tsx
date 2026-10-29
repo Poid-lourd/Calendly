@@ -1133,7 +1133,7 @@ export function SignaturePage(props: {
                 <h2>Aperçu</h2>
                 <iframe class="signature-frame" src="/admin/signature/apercu" title="Aperçu de la signature"></iframe>
                 <p class="hint">
-                  L'image donne les prochains créneaux libres au moment où le destinataire ouvre le message. Le titre et le lien restent lisibles si sa messagerie bloque les images.
+                  Chaque horaire est une image recalculée à l'ouverture du message, et un lien qui ouvre directement la réservation de ce créneau. Le titre et le lien vers le calendrier restent lisibles si la messagerie bloque les images.
                 </p>
               </section>
 

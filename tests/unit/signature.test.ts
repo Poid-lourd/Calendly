@@ -3,7 +3,7 @@ import { DateTime } from "luxon";
 import { describe, expect, it } from "vitest";
 import { pickSpread, selectSignatureSlots } from "../../src/domain/signature.js";
 import { woffToSfnt } from "../../src/lib/woff.js";
-import { SignatureRenderer, signatureHtml, signatureSvg } from "../../src/web/signature.js";
+import { SignatureRenderer, chipSvg, signatureHtml, signatureSvg } from "../../src/web/signature.js";
 import { createContext, demoUser, fontFiles } from "../helpers.js";
 
 const PARIS = "Europe/Paris";
@@ -109,10 +109,34 @@ describe("image et bloc HTML", () => {
     expect(png.length).toBeGreaterThan(3000);
   });
 
-  it("bloc HTML compatible messagerie, URL absolues", () => {
-    const html = signatureHtml({ baseUrl: new URL("https://rdv.exemple.fr"), hostSlug: "camille-martin", slug: "echange-30-min", accent: "#0d6b52" });
-    expect(html).toContain('href="https://rdv.exemple.fr/camille-martin/creneaux"');
-    expect(html).toContain('src="https://rdv.exemple.fr/camille-martin/signature.png"');
+  it("une pastille par créneau, la première renvoie aux dates sans créneau", () => {
+    const ok = { status: "ok" as const, eventType: null, zone: PARIS, week: "current" as const, slots: [at("2027-01-05T14:00"), at("2027-01-06T09:00")] };
+    expect(chipSvg(ok, 2)).toContain("Mer. 6 janv.");
+    expect(chipSvg(ok, 2)).toContain("09:00");
+    expect(chipSvg(ok, 3)).not.toContain("<text");
+    const empty = { ...ok, status: "empty" as const, slots: [] };
+    expect(chipSvg(empty, 1)).toContain("Voir les dates");
+    expect(chipSvg(empty, 2)).not.toContain("<text");
+    const png = new SignatureRenderer(fontFiles()).renderChip(ok, 1, at("2027-01-04T08:00"));
+    expect(png.readUInt32BE(16)).toBe(224);
+    expect(png.readUInt32BE(20)).toBe(112);
+  });
+
+  it("bloc HTML compatible messagerie, URL absolues, un lien par créneau", () => {
+    const html = signatureHtml({
+      baseUrl: new URL("https://rdv.exemple.fr"),
+      hostSlug: "camille-martin",
+      slug: "echange-30-min",
+      accent: "#0d6b52",
+      count: 3,
+      zone: PARIS,
+    });
+    for (const n of [1, 2, 3]) {
+      expect(html).toContain(`href="https://rdv.exemple.fr/camille-martin/signature/${n}"`);
+      expect(html).toContain(`src="https://rdv.exemple.fr/camille-martin/signature/${n}.png"`);
+    }
+    expect(html).not.toContain("/signature/4");
+    expect(html).toContain("Heure de Paris");
     expect(html).toContain('href="https://rdv.exemple.fr/camille-martin/echange-30-min"');
     expect(html).toContain("<table");
     expect(html).not.toMatch(/<style|<script|class=/);

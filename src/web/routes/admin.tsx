@@ -346,6 +346,12 @@ function renderSchedule(c: Ctx, id: number | null, values: ScheduleValues, error
 
 // ===== Réglages : image =====
 
+// Bloc de signature d'une personne : un créneau par place, heures écrites dans le fuseau du planning.
+function signatureOptions(deps: Deps, user: User, et: EventType) {
+  const zone = deps.repo.getSchedule(et.scheduleId)?.timeZone ?? "Europe/Paris";
+  return { baseUrl: deps.config.baseUrl, hostSlug: user.slug, slug: et.slug, accent: user.accentColor, count: user.signatureMaxSlots, zone };
+}
+
 const MAX_AVATAR = 1024 * 1024;
 
 function imageType(bytes: Uint8Array): string | null {
@@ -664,7 +670,7 @@ export function adminRoutes(app: Hono<Env>): void {
         eventTypeId={form?.eventTypeId ?? String(configured?.id ?? eventTypes[0]?.id ?? "")}
         maxSlots={form?.maxSlots ?? String(user.signatureMaxSlots)}
         error={form?.error}
-        html={configured ? signatureHtml({ baseUrl: deps.config.baseUrl, hostSlug: user.slug, slug: configured.slug, accent: user.accentColor }) : null}
+        html={configured ? signatureHtml(signatureOptions(deps, user, configured)) : null}
       />,
       form ? 400 : 200,
     );
@@ -700,7 +706,7 @@ export function adminRoutes(app: Hono<Env>): void {
       `<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><base target="_blank"><title>Aperçu</title></head>` +
         `<body style="margin:16px;background:#ffffff;color:#171716;font-family:'IBM Plex Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:14px;">` +
         (name ? `<p style="margin:0;">${name}</p>` : "") +
-        signatureHtml({ baseUrl: deps.config.baseUrl, hostSlug: user.slug, slug: et.slug, accent: user.accentColor }) +
+        signatureHtml(signatureOptions(deps, user, et)) +
         `</body></html>`,
     );
   });

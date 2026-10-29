@@ -11,6 +11,11 @@ import { woffToSfnt } from "../lib/woff.js";
 
 export const SIGNATURE_WIDTH = 480;
 export const SIGNATURE_HEIGHT = 112;
+// Pastille d'un créneau : une image par créneau, chacune liée à sa propre réservation.
+export const CHIP_WIDTH = 112;
+export const CHIP_HEIGHT = 56;
+export const CHIP_GAP = 8;
+export const MAX_CHIPS = 4;
 const SCALE = 2;
 const FONT = "IBM Plex Sans";
 const TEXT = "#171716";
@@ -67,6 +72,33 @@ export function signatureSvg(selection: SignatureSelection, now: number): string
   ].join("");
 }
 
+// Pastille du créneau n (à partir de 1) de la sélection. Sans créneau à cette place, la première pastille
+// renvoie vers les disponibilités et les suivantes restent blanches.
+export function chipSvg(selection: SignatureSelection, n: number): string {
+  const slot = selection.status === "ok" ? selection.slots[n - 1] : undefined;
+  const parts: string[] = [];
+  const text = (x: number, y: number, size: number, family: string, color: string, value: string) =>
+    parts.push(`<text x="${x}" y="${y}" font-family="${family}" font-size="${size}" fill="${color}">${escapeXml(value)}</text>`);
+  const box = () =>
+    parts.push(`<rect x="0.5" y="0.5" width="${CHIP_WIDTH - 1}" height="${CHIP_HEIGHT - 1}" rx="4" fill="#ffffff" stroke="${LINE}" stroke-width="1"/>`);
+  if (slot !== undefined) {
+    const d = DateTime.fromMillis(slot, { zone: selection.zone }).setLocale("fr");
+    box();
+    text(12, 22, 13, FONT, TEXT_2, capitalize(d.toFormat("ccc d LLL")));
+    text(12, 44, 17, `${FONT} SemiBold`, TEXT, d.toFormat("HH:mm"));
+  } else if (n === 1) {
+    box();
+    text(12, 22, 13, FONT, TEXT_2, selection.status === "empty" ? "Semaines à venir" : "En ligne");
+    text(12, 44, 15, `${FONT} SemiBold`, TEXT, "Voir les dates");
+  }
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${CHIP_WIDTH * SCALE}" height="${CHIP_HEIGHT * SCALE}" viewBox="0 0 ${CHIP_WIDTH} ${CHIP_HEIGHT}">`,
+    `<rect width="${CHIP_WIDTH}" height="${CHIP_HEIGHT}" fill="#ffffff"/>`,
+    ...parts,
+    "</svg>",
+  ].join("");
+}
+
 export class SignatureRenderer {
   private readonly fontFiles: string[];
   private readonly cache = new Map<string, { expires: number; png: Buffer }>();
@@ -83,10 +115,20 @@ export class SignatureRenderer {
 
   render(selection: SignatureSelection, now: number): Buffer {
     const key = JSON.stringify([selection.status, selection.week, selection.zone, selection.slots]);
+    return this.cached(key, now, () => signatureSvg(selection, now));
+  }
+
+  // Pastille du créneau n, pour la signature où chaque créneau est un lien.
+  renderChip(selection: SignatureSelection, n: number, now: number): Buffer {
+    const slot = selection.status === "ok" ? selection.slots[n - 1] : undefined;
+    const key = JSON.stringify(["chip", n, selection.status, selection.zone, slot ?? null]);
+    return this.cached(key, now, () => chipSvg(selection, n));
+  }
+
+  private cached(key: string, now: number, svg: () => string): Buffer {
     const hit = this.cache.get(key);
     if (hit && hit.expires > now) return hit.png;
-    const svg = signatureSvg(selection, now);
-    const png = new Resvg(svg, {
+    const png = new Resvg(svg(), {
       font: { fontFiles: this.fontFiles, loadSystemFonts: false, defaultFontFamily: FONT },
       background: "#ffffff",
     })
@@ -99,16 +141,30 @@ export class SignatureRenderer {
 }
 
 // Bloc HTML de signature, compatible avec les messageries : tableau, styles en ligne, URL absolues.
-// hostSlug : adresse de la page de la personne ; slug : type d'événement du lien vers le calendrier complet.
-export function signatureHtml(opts: { baseUrl: URL; hostSlug: string; slug: string; accent: string }): string {
+// hostSlug : adresse de la page de la personne ; slug : type d'événement du lien vers le calendrier complet ;
+// count : nombre de créneaux, chacun une image liée à /personne/signature/n, qui ouvre la réservation du créneau
+// affiché à cette place au moment du clic ; zone : fuseau du planning, dans lequel les heures sont écrites.
+export function signatureHtml(opts: { baseUrl: URL; hostSlug: string; slug: string; accent: string; count: number; zone: string }): string {
   const url = (p: string) => new URL(p, opts.baseUrl).toString();
   const font = "font-family:'IBM Plex Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;";
+  const count = Math.min(Math.max(opts.count, 1), MAX_CHIPS);
+  const city = (opts.zone.split("/").pop() ?? opts.zone).replaceAll("_", " ");
+  const chips = Array.from({ length: count }, (_, i) => {
+    const n = i + 1;
+    const pad = n < count ? `padding:0 ${CHIP_GAP}px 0 0;` : "padding:0;";
+    return (
+      `<td style="${pad}"><a href="${url(`/${opts.hostSlug}/signature/${n}`)}" style="text-decoration:none;">` +
+      `<img src="${url(`/${opts.hostSlug}/signature/${n}.png`)}" width="${CHIP_WIDTH}" height="${CHIP_HEIGHT}" alt="Créneau ${n} : réserver" style="display:block;width:${CHIP_WIDTH}px;height:${CHIP_HEIGHT}px;border:0;">` +
+      `</a></td>`
+    );
+  });
   return [
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin-top:16px;">`,
     `<tr><td style="padding:0 0 8px 0;${font}font-size:14px;font-weight:600;color:${TEXT};">Réserver un échange</td></tr>`,
-    `<tr><td style="padding:0;"><a href="${url(`/${opts.hostSlug}/creneaux`)}" style="text-decoration:none;">`,
-    `<img src="${url(`/${opts.hostSlug}/signature.png`)}" width="${SIGNATURE_WIDTH}" height="${SIGNATURE_HEIGHT}" alt="Voir les créneaux disponibles cette semaine" style="display:block;width:100%;max-width:${SIGNATURE_WIDTH}px;height:auto;border:0;">`,
-    `</a></td></tr>`,
+    `<tr><td style="padding:0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;"><tr>`,
+    ...chips,
+    `</tr></table></td></tr>`,
+    `<tr><td style="padding:6px 0 0 0;${font}font-size:12px;color:${TEXT_2};">Heure de ${escapeXml(city)} · cliquez sur un horaire pour le réserver</td></tr>`,
     `<tr><td style="padding:8px 0 0 0;${font}font-size:13px;"><a href="${url(`/${opts.hostSlug}/${opts.slug}`)}" style="color:${opts.accent};text-decoration:underline;">Plus de disponibilités dans les semaines à venir</a></td></tr>`,
     `</table>`,
   ].join("\n");
